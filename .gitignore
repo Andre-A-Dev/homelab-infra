@@ -1,0 +1,22 @@
+# Secrets – never commit these
+**/.env
+caddy.env
+**/secrets/
+**/*.key
+**/*.pem
+**/app.ini
+
+# Mail credentials
+**/msmtprc
+
+# Nextcloud data
+**/html/data/
+
+# Runtime junk
+**/__pycache__/
+**/*.pyc
+.DS_Store
+
+# JetBrains IDEs (PyCharm, IntelliJ, etc.)
+.idea/
+*.iml
