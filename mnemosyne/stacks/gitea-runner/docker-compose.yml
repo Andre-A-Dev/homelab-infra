@@ -1,0 +1,25 @@
+services:
+  act-runner:
+    image: gitea/act_runner:latest
+    container_name: gitea-act-runner
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      GITEA_INSTANCE_URL: "https://git.home"
+      GITEA_RUNNER_NAME: "mnemosyne"
+      GITEA_RUNNER_LABELS: "mnemosyne,docker,arm64"
+      DOCKER_HOST: "unix:///var/run/docker.sock"
+      # Trust Caddy's internal CA so the runner can reach git.home
+      SSL_CERT_FILE: "/usr/local/share/ca-certificates/caddy-root.crt"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/codex/gitea/runner:/data
+      # Caddy root CA — needed to verify TLS on git.home
+      - /mnt/codex/gitea/runner/ca.crt:/usr/local/share/ca-certificates/caddy-root.crt:ro
+    networks:
+      - caddy_proxy
+
+networks:
+  caddy_proxy:
+    external: true

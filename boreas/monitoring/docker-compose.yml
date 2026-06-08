@@ -1,0 +1,23 @@
+---
+services:
+
+  # System metrics for Prometheus scraping
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    hostname: Boreas
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /var/lib/node_exporter/textfile_collector:/textfile_collector:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+      - "--collector.textfile.directory=/textfile_collector"
+    network_mode: host

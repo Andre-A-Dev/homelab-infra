@@ -1,0 +1,45 @@
+# ============================================================
+# SSH Client Configuration — AstraeusNX (CachyOS)
+# Managed in: ~/homelab-infra/dotfiles/ssh_config
+# ============================================================
+
+# ── Global Defaults ─────────────────────────────────────────
+Host *
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    AddKeysToAgent yes
+    IdentitiesOnly yes
+
+# ── Local Network ────────────────────────────────────────────
+Host mnemosyne
+    HostName 192.168.1.10
+    User youruser
+    IdentityFile ~/.ssh/id_ed25519
+
+Host boreas
+    HostName 192.168.1.11
+    User youruser
+    IdentityFile ~/.ssh/id_ed25519
+
+# ── Gitea (SSH Git, non-standard port) ───────────────────────
+Host git.home
+    HostName 192.168.1.10
+    User git
+    Port 2222
+    IdentityFile ~/.ssh/id_ed25519
+
+# ── Tailscale ────────────────────────────────────────────────
+Host mnemosyne-ts
+    HostName mnemosyne.tail1234.ts.net
+    User youruser
+    IdentityFile ~/.ssh/id_ed25519
+
+Host boreas-ts
+    HostName boreas.tail1234.ts.net
+    User youruser
+    IdentityFile ~/.ssh/id_ed25519
+
+Host zephyros
+    HostName 100.y.y.y
+    User youruser
+    IdentityFile ~/.ssh/id_ed25519

@@ -1,0 +1,16 @@
+[Unit]
+Description=Viessmann Heating Curve Control API
+After=network.target vcontrold.service
+Requires=vcontrold.service
+
+[Service]
+Type=simple
+User=youruser
+WorkingDirectory=/home/youruser/homelab-infra/hephaestus/scripts
+EnvironmentFile=/home/youruser/homelab-infra/hephaestus/scripts/.env
+ExecStart=/usr/bin/python3 /home/youruser/homelab-infra/hephaestus/scripts/viessmann-api.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

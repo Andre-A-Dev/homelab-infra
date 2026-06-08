@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Proxy-Verwaltung</title>
+  <style>
+    /* ── Reset & base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f0f0f;
+      --surface:   #1a1a1a;
+      --border:    #2e2e2e;
+      --ink:       #e8e8e8;
+      --muted:     #888;
+      --accent:    #7c6af7;
+      --accent-fg: #ffffff;
+      --danger:    #f87171;
+      --success:   #4ade80;
+      --warn:      #fbbf24;
+      --radius:    6px;
+      --shadow:    0 1px 4px rgba(0,0,0,0.4);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg:        #f7f5f2;
+        --surface:   #ffffff;
+        --border:    #ddd8d0;
+        --ink:       #1a1a1a;
+        --muted:     #6b6560;
+        --accent:    #5b4fcf;
+        --accent-fg: #ffffff;
+        --danger:    #c0392b;
+        --success:   #1e7e44;
+        --warn:      #b45309;
+        --shadow:    0 1px 4px rgba(0,0,0,0.08);
+      }
+
+      header { background: #1a1a1a; }
+
+      input[type="text"],
+      input[type="file"],
+      textarea {
+        background: #ffffff;
+        color: var(--ink);
+        border-color: var(--border);
+      }
+
+      .edit-form input,
+      .edit-form textarea {
+        background: #ffffff;
+        color: var(--ink);
+      }
+
+      .btn-secondary {
+        color: var(--ink);
+        border-color: var(--border);
+      }
+
+      .btn-secondary:hover { background: #f7f5f2; }
+
+      #status-banner.success {
+        background: #ecfdf5;
+        border-color: #a7f3d0;
+      }
+
+      #status-banner.error {
+        background: #fef2f2;
+        border-color: #fecaca;
+      }
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Skip link (VoiceOver / keyboard) ── */
+    .skip-link {
+      position: absolute;
+      top: -100%;
+      left: 0;
+      background: var(--accent);
+      color: var(--accent-fg);
+      padding: 12px 20px;
+      font-weight: 600;
+      text-decoration: none;
+      z-index: 100;
+    }
+    .skip-link:focus { top: 0; }
+
+    /* ── Header ── */
+    header {
+      background: #111;
+      color: #e8e8e8;
+      padding: 20px 24px;
+    }
+
+    header h1 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+
+    header p {
+      font-size: 13px;
+      color: #aaa;
+      margin-top: 2px;
+    }
+
+    /* ── Layout ── */
+    main {
+      max-width: 740px;
+      margin: 0 auto;
+      padding: 32px 24px 64px;
+    }
+
+    /* ── Status region (VoiceOver live announcements) ── */
+    #status-region {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+    }
+
+    /* ── Visible status banner ── */
+    #status-banner {
+      display: none;
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      margin-bottom: 24px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    #status-banner.success {
+      display: block;
+      background: #ecfdf5;
+      color: var(--success);
+      border: 1px solid #a7f3d0;
+    }
+
+    #status-banner.error {
+      display: block;
+      background: #fef2f2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+    }
+
+    /* ── Section titles ── */
+    h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      box-shadow: var(--shadow);
+      margin-bottom: 32px;
+    }
+
+    /* ── Form ── */
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: var(--ink);
+    }
+
+    label .required {
+      color: var(--danger);
+      margin-left: 3px;
+      aria-hidden: true;
+    }
+
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 15px;
+      font-family: inherit;
+      color: var(--ink);
+      background: var(--bg);
+      transition: border-color 0.15s;
+      appearance: none;
+    }
+
+    input[type="text"]:focus,
+    textarea:focus {
+      outline: 3px solid var(--accent);
+      outline-offset: 1px;
+      border-color: var(--accent);
+    }
+
+    input[aria-invalid="true"],
+    textarea[aria-invalid="true"] {
+      border-color: var(--danger);
+    }
+
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+    }
+
+    .field-hint {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 5px;
+    }
+
+    .field-error {
+      font-size: 13px;
+      color: var(--danger);
+      margin-top: 5px;
+      font-weight: 500;
+      display: none;
+    }
+
+    .field-error.visible { display: block; }
+
+    /* ── Avatar upload ── */
+    .avatar-upload {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .avatar-preview {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: var(--border);
+      overflow: hidden;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .avatar-preview img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .avatar-placeholder {
+      font-size: 22px;
+      color: var(--muted);
+      line-height: 1;
+    }
+
+    .avatar-upload input[type="file"] {
+      font-size: 14px;
+    }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius);
+      font-size: 15px;
+      font-weight: 500;
+      font-family: inherit;
+      border: none;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+      text-decoration: none;
+    }
+
+    .btn:focus {
+      outline: 3px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--accent-fg);
+    }
+
+    .btn-primary:hover { opacity: 0.88; }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--ink);
+      border: 1.5px solid var(--border);
+    }
+
+    .btn-secondary:hover { background: var(--bg); }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--danger);
+      border: 1.5px solid currentColor;
+      font-size: 13px;
+      padding: 6px 12px;
+    }
+
+    .btn-danger:hover { background: #fef2f2; }
+
+    .btn-success {
+      background: transparent;
+      color: var(--success);
+      border: 1.5px solid currentColor;
+      font-size: 13px;
+      padding: 6px 12px;
+    }
+
+    .btn-success:hover { background: #ecfdf5; }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Loading spinner ── */
+    .spinner {
+      display: none;
+      width: 18px;
+      height: 18px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Proxy list ── */
+    #proxy-list {
+      list-style: none;
+    }
+
+    #proxy-list li {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      margin-bottom: 10px;
+      display: grid;
+      grid-template-columns: 48px 1fr auto;
+      gap: 0 14px;
+      align-items: start;
+      box-shadow: var(--shadow);
+    }
+
+    .proxy-avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      background: var(--border);
+      overflow: hidden;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: var(--muted);
+    }
+
+    .proxy-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .proxy-info .proxy-name {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .proxy-info .proxy-slug {
+      font-size: 13px;
+      color: var(--muted);
+      font-family: monospace;
+    }
+
+    .proxy-info .proxy-bio {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .btn-edit {
+      background: transparent;
+      color: var(--accent);
+      border: 1.5px solid currentColor;
+      font-size: 13px;
+      padding: 6px 12px;
+    }
+    .btn-edit:hover { background: rgba(91,79,207,0.07); }
+
+    /* Edit inline form */
+    .edit-form {
+      display: none;
+      grid-column: 1 / -1;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      padding: 16px;
+      margin-top: 10px;
+    }
+
+    .edit-form.open { display: block; }
+
+    .edit-form .form-group { margin-bottom: 14px; }
+    .edit-form .form-group:last-of-type { margin-bottom: 0; }
+
+    .edit-form label {
+      font-size: 13px;
+      font-weight: 500;
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .edit-form input,
+    .edit-form textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-family: inherit;
+      background: var(--surface);
+    }
+
+    .edit-form input:focus,
+    .edit-form textarea:focus {
+      outline: 3px solid var(--accent);
+      outline-offset: 1px;
+      border-color: var(--accent);
+    }
+
+    .edit-form textarea { min-height: 70px; resize: vertical; }
+
+    .edit-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    .proxy-inactive .proxy-name::after {
+      content: " (inaktiv)";
+      font-weight: 400;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .proxy-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    /* ── Loading / empty state ── */
+    .state-msg {
+      padding: 32px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+    }
+  </style>
+</head>
+<body>
+
+<!-- Skip link for keyboard / VoiceOver -->
+<a href="#main-content" class="skip-link">Zum Hauptinhalt springen</a>
+
+<!-- VoiceOver live region: status announcements -->
+<div
+  id="status-region"
+  role="status"
+  aria-live="polite"
+  aria-atomic="true"
+></div>
+
+<header>
+  <h1>Ghost Proxy-Verwaltung</h1>
+  <p>Proxys anlegen, bearbeiten und deaktivieren</p>
+</header>
+
+<main id="main-content">
+
+  <!-- Visible status banner -->
+  <div id="status-banner" role="alert" aria-atomic="true"></div>
+
+  <!-- ── Create proxy ── -->
+  <section aria-labelledby="create-heading">
+    <div class="card">
+      <h2 id="create-heading">Neuen Proxy anlegen</h2>
+
+      <form id="create-form" novalidate autocomplete="off">
+
+        <!-- Name -->
+        <div class="form-group">
+          <label for="proxy-name">
+            Name <span class="required" aria-label="Pflichtfeld">*</span>
+          </label>
+          <input
+            type="text"
+            id="proxy-name"
+            name="name"
+            required
+            aria-required="true"
+            aria-describedby="name-error"
+            placeholder="z.B. Luna"
+          >
+          <div id="name-error" class="field-error" aria-live="polite"></div>
+        </div>
+
+        <!-- Slug -->
+        <div class="form-group">
+          <label for="proxy-slug">
+            Slug <span class="required" aria-label="Pflichtfeld">*</span>
+          </label>
+          <input
+            type="text"
+            id="proxy-slug"
+            name="slug"
+            required
+            aria-required="true"
+            aria-describedby="slug-hint slug-error"
+            placeholder="z.B. luna"
+          >
+          <div id="slug-hint" class="field-hint">
+            Wird automatisch aus dem Namen generiert. Nur Kleinbuchstaben, Zahlen und Bindestriche.
+            Ergibt die URL: /author/<span id="slug-preview">…</span>
+          </div>
+          <div id="slug-error" class="field-error" aria-live="polite"></div>
+        </div>
+
+        <!-- Bio -->
+        <div class="form-group">
+          <label for="proxy-bio">Bio (optional)</label>
+          <textarea
+            id="proxy-bio"
+            name="bio"
+            aria-describedby="bio-hint"
+            placeholder="Kurze Beschreibung des Proxys…"
+          ></textarea>
+          <div id="bio-hint" class="field-hint">Erscheint auf der Autorenseite des Blogs.</div>
+        </div>
+
+        <!-- Avatar -->
+        <div class="form-group">
+          <label for="proxy-avatar">Avatar-Bild (optional)</label>
+          <div class="avatar-upload">
+            <div class="avatar-preview" aria-hidden="true">
+              <span class="avatar-placeholder">👤</span>
+            </div>
+            <input
+              type="file"
+              id="proxy-avatar"
+              name="avatar"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              aria-describedby="avatar-hint"
+            >
+          </div>
+          <div id="avatar-hint" class="field-hint">
+            JPEG, PNG, GIF oder WebP · max. 5 MB
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <button type="submit" class="btn btn-primary" id="create-btn">
+            <span class="spinner" id="create-spinner" aria-hidden="true"></span>
+            <span id="create-btn-label">Proxy anlegen</span>
+          </button>
+          <button type="reset" class="btn btn-secondary">Felder leeren</button>
+        </div>
+
+      </form>
+    </div>
+  </section>
+
+  <!-- ── Proxy list ── -->
+  <section aria-labelledby="list-heading">
+    <h2 id="list-heading">Vorhandene Proxys</h2>
+
+    <div id="list-container">
+      <p class="state-msg" aria-live="polite">Proxys werden geladen…</p>
+    </div>
+  </section>
+
+</main>
+
+<script>
+// ── Utility ──────────────────────────────────────────────────────────────────
+
+/** Announce a message to VoiceOver via the live region. */
+function announce(msg) {
+  const region = document.getElementById("status-region");
+  // Clear first so repeated identical messages are re-announced
+  region.textContent = "";
+  requestAnimationFrame(() => { region.textContent = msg; });
+}
+
+/** Show a visible status banner and announce it. */
+function showStatus(msg, type) {
+  const banner = document.getElementById("status-banner");
+  banner.textContent = msg;
+  banner.className = type; // "success" | "error"
+  announce(msg);
+  banner.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+/** Convert a display name to a URL-safe slug. */
+function nameToSlug(name) {
+  return name
+    .toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Set field error state (accessible). */
+function setFieldError(inputId, errorId, message) {
+  const input = document.getElementById(inputId);
+  const error = document.getElementById(errorId);
+  if (message) {
+    input.setAttribute("aria-invalid", "true");
+    error.textContent = message;
+    error.classList.add("visible");
+  } else {
+    input.removeAttribute("aria-invalid");
+    error.textContent = "";
+    error.classList.remove("visible");
+  }
+}
+
+/** Clear all field errors on the create form. */
+function clearErrors() {
+  setFieldError("proxy-name", "name-error", "");
+  setFieldError("proxy-slug", "slug-error", "");
+}
+
+// ── API calls ─────────────────────────────────────────────────────────────────
+
+async function apiFetch(path, options = {}) {
+  const resp = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...options.headers },
+    ...options,
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+  return data;
+}
+
+// ── Proxy list rendering ──────────────────────────────────────────────────────
+
+async function loadProxies() {
+  const container = document.getElementById("list-container");
+  container.innerHTML = '<p class="state-msg" aria-live="polite">Wird geladen…</p>';
+
+  try {
+    const proxies = await apiFetch("/api/proxies");
+    renderProxies(proxies);
+  } catch (e) {
+    container.innerHTML = `<p class="state-msg">Fehler beim Laden: ${e.message}</p>`;
+    announce(`Fehler beim Laden der Proxys: ${e.message}`);
+  }
+}
+
+function renderProxies(proxies) {
+  const container = document.getElementById("list-container");
+
+  if (!proxies.length) {
+    container.innerHTML = '<p class="state-msg">Noch keine Proxys vorhanden.</p>';
+    return;
+  }
+
+  const ul = document.createElement("ul");
+  ul.id = "proxy-list";
+  ul.setAttribute("aria-label", "Liste aller Proxys");
+
+  for (const proxy of proxies) {
+    ul.appendChild(renderProxyItem(proxy));
+  }
+
+  container.innerHTML = "";
+  container.appendChild(ul);
+}
+
+function renderProxyItem(proxy) {
+  const li = document.createElement("li");
+  if (!proxy.active) li.classList.add("proxy-inactive");
+
+  // Avatar
+  const avatarDiv = document.createElement("div");
+  avatarDiv.className = "proxy-avatar";
+  avatarDiv.setAttribute("aria-hidden", "true");
+  if (proxy.avatar) {
+    const img = document.createElement("img");
+    img.src = proxy.avatar;
+    img.alt = "";
+    avatarDiv.appendChild(img);
+  } else {
+    avatarDiv.textContent = "👤";
+  }
+
+  // Info
+  const infoDiv = document.createElement("div");
+  infoDiv.className = "proxy-info";
+  infoDiv.innerHTML = `
+    <div class="proxy-name">${escHtml(proxy.name)}</div>
+    <div class="proxy-slug">/author/${escHtml(proxy.slug)}/</div>
+    ${proxy.bio ? `<div class="proxy-bio">${escHtml(proxy.bio)}</div>` : ""}
+  `;
+
+  // Actions
+  const actionsDiv = document.createElement("div");
+  actionsDiv.className = "proxy-actions";
+
+  // Edit button
+  const editBtn = document.createElement("button");
+  editBtn.className = "btn btn-edit";
+  editBtn.setAttribute("aria-label", `${proxy.name} bearbeiten`);
+  editBtn.setAttribute("aria-expanded", "false");
+  editBtn.setAttribute("aria-controls", `edit-form-${proxy.id}`);
+  editBtn.textContent = "Bearbeiten";
+  actionsDiv.appendChild(editBtn);
+
+  if (proxy.active) {
+    const deactivateBtn = document.createElement("button");
+    deactivateBtn.className = "btn btn-danger";
+    deactivateBtn.setAttribute("aria-label", `${proxy.name} deaktivieren`);
+    deactivateBtn.textContent = "Deaktivieren";
+    deactivateBtn.addEventListener("click", () => toggleProxy(proxy.id, false, proxy.name));
+    actionsDiv.appendChild(deactivateBtn);
+  } else {
+    const activateBtn = document.createElement("button");
+    activateBtn.className = "btn btn-success";
+    activateBtn.setAttribute("aria-label", `${proxy.name} aktivieren`);
+    activateBtn.textContent = "Aktivieren";
+    activateBtn.addEventListener("click", () => toggleProxy(proxy.id, true, proxy.name));
+    actionsDiv.appendChild(activateBtn);
+  }
+
+  // Inline edit form
+  const editForm = document.createElement("div");
+  editForm.className = "edit-form";
+  editForm.id = `edit-form-${proxy.id}`;
+  editForm.setAttribute("role", "region");
+  editForm.setAttribute("aria-label", `${proxy.name} bearbeiten`);
+  editForm.innerHTML = `
+    <div class="form-group">
+      <label for="edit-name-${proxy.id}">Name</label>
+      <input type="text" id="edit-name-${proxy.id}" value="${escHtml(proxy.name)}"
+             autocomplete="off" aria-required="true">
+    </div>
+    <div class="form-group">
+      <label for="edit-bio-${proxy.id}">Bio</label>
+      <textarea id="edit-bio-${proxy.id}" autocomplete="off">${escHtml(proxy.bio)}</textarea>
+    </div>
+    <div class="form-group">
+      <label for="edit-avatar-${proxy.id}">Avatar-Bild (optional)</label>
+      <input type="file" id="edit-avatar-${proxy.id}"
+             accept="image/jpeg,image/png,image/gif,image/webp"
+             aria-describedby="edit-avatar-hint-${proxy.id}">
+      <div id="edit-avatar-hint-${proxy.id}" style="font-size:12px;color:var(--muted);margin-top:4px;">
+        JPEG, PNG, GIF oder WebP · max. 5 MB
+      </div>
+    </div>
+    <div class="edit-actions">
+      <button class="btn btn-primary save-btn" aria-label="${escHtml(proxy.name)} speichern">Speichern</button>
+      <button class="btn btn-secondary cancel-btn">Abbrechen</button>
+    </div>
+  `;
+
+  // Toggle edit form
+  editBtn.addEventListener("click", () => {
+    const isOpen = editForm.classList.contains("open");
+    editForm.classList.toggle("open");
+    editBtn.setAttribute("aria-expanded", String(!isOpen));
+    if (!isOpen) {
+      editForm.querySelector(`#edit-name-${proxy.id}`).focus();
+    }
+  });
+
+  // Cancel
+  editForm.querySelector(".cancel-btn").addEventListener("click", () => {
+    editForm.classList.remove("open");
+    editBtn.setAttribute("aria-expanded", "false");
+    editBtn.focus();
+  });
+
+  // Save
+  editForm.querySelector(".save-btn").addEventListener("click", async () => {
+    const name      = editForm.querySelector(`#edit-name-${proxy.id}`).value.trim();
+    const bio       = editForm.querySelector(`#edit-bio-${proxy.id}`).value.trim();
+    const avatarFile = editForm.querySelector(`#edit-avatar-${proxy.id}`).files[0];
+
+    if (!name) {
+      announce("Name darf nicht leer sein.");
+      editForm.querySelector(`#edit-name-${proxy.id}`).focus();
+      return;
+    }
+
+    const saveBtn = editForm.querySelector(".save-btn");
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Wird gespeichert…";
+    announce(`${proxy.name} wird gespeichert…`);
+
+    try {
+      await apiFetch(`/api/proxies/${proxy.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name, bio }),
+      });
+
+      if (avatarFile) {
+        if (avatarFile.size > 5 * 1024 * 1024) {
+          throw new Error("Bild zu groß (max. 5 MB).");
+        }
+        const formData = new FormData();
+        formData.append("avatar", avatarFile);
+        const resp = await fetch(`/api/proxies/${proxy.id}/avatar`, { method: "POST", body: formData });
+        if (!resp.ok) {
+          const d = await resp.json().catch(() => ({}));
+          throw new Error(d.error || "Avatar-Upload fehlgeschlagen");
+        }
+      }
+
+      showStatus(`Proxy „${name}" wurde aktualisiert.`, "success");
+      await loadProxies();
+    } catch (err) {
+      showStatus(`Fehler beim Speichern: ${err.message}`, "error");
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Speichern";
+    }
+  });
+
+  li.appendChild(avatarDiv);
+  li.appendChild(infoDiv);
+  li.appendChild(actionsDiv);
+  li.appendChild(editForm);
+  return li;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ── Create proxy ──────────────────────────────────────────────────────────────
+
+document.getElementById("proxy-name").addEventListener("input", function () {
+  const slug = nameToSlug(this.value);
+  document.getElementById("proxy-slug").value = slug;
+  document.getElementById("slug-preview").textContent = slug || "…";
+});
+
+document.getElementById("proxy-slug").addEventListener("input", function () {
+  document.getElementById("slug-preview").textContent = this.value || "…";
+});
+
+// Avatar preview
+document.getElementById("proxy-avatar").addEventListener("change", function () {
+  const file = this.files[0];
+  if (!file) return;
+  const preview = this.closest(".form-group").querySelector(".avatar-preview");
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    preview.innerHTML = `<img src="${e.target.result}" alt="Vorschau des gewählten Avatars">`;
+  };
+  reader.readAsDataURL(file);
+});
+
+document.getElementById("create-form").addEventListener("submit", async function (e) {
+  e.preventDefault();
+  clearErrors();
+
+  const name = document.getElementById("proxy-name").value.trim();
+  const slug = document.getElementById("proxy-slug").value.trim();
+  const bio  = document.getElementById("proxy-bio").value.trim();
+  const avatarFile = document.getElementById("proxy-avatar").files[0];
+
+  // Client-side validation
+  let hasError = false;
+  if (!name) {
+    setFieldError("proxy-name", "name-error", "Bitte einen Namen eingeben.");
+    hasError = true;
+  }
+  if (!slug) {
+    setFieldError("proxy-slug", "slug-error", "Bitte einen Slug eingeben.");
+    hasError = true;
+  } else if (!/^[a-z0-9-]+$/.test(slug)) {
+    setFieldError("proxy-slug", "slug-error", "Nur Kleinbuchstaben, Zahlen und Bindestriche erlaubt.");
+    hasError = true;
+  }
+
+  if (hasError) {
+    announce("Bitte Fehler im Formular korrigieren.");
+    return;
+  }
+
+  // Loading state
+  const btn = document.getElementById("create-btn");
+  const spinner = document.getElementById("create-spinner");
+  const btnLabel = document.getElementById("create-btn-label");
+  btn.disabled = true;
+  spinner.style.display = "block";
+  btnLabel.textContent = "Wird erstellt…";
+  announce("Proxy wird erstellt, bitte warten.");
+
+  try {
+    // 1. Create proxy
+    const proxy = await apiFetch("/api/proxies", {
+      method: "POST",
+      body: JSON.stringify({ name, slug, bio }),
+    });
+
+    // 2. Upload avatar if provided
+    if (avatarFile) {
+      if (avatarFile.size > 5 * 1024 * 1024) {
+        showStatus(`Proxy „${name}" wurde angelegt, aber das Bild ist zu groß (max. 5 MB).`, "error");
+        await loadProxies();
+        return;
+      }
+      const formData = new FormData();
+      formData.append("avatar", avatarFile);
+      const avatarResp = await fetch(`/api/proxies/${proxy.id}/avatar`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!avatarResp.ok) {
+        const d = await avatarResp.json().catch(() => ({}));
+        showStatus(`Proxy angelegt, aber Avatar-Upload fehlgeschlagen: ${d.error || "Unbekannter Fehler"}`, "error");
+        await loadProxies();
+        return;
+      }
+    }
+
+    showStatus(`Proxy „${name}" wurde erfolgreich angelegt.`, "success");
+    this.reset();
+    document.getElementById("slug-preview").textContent = "…";
+    document.querySelector(".avatar-preview").innerHTML = '<span class="avatar-placeholder" aria-hidden="true">👤</span>';
+    await loadProxies();
+
+    // Move focus to the proxy list heading for VoiceOver
+    document.getElementById("list-heading").setAttribute("tabindex", "-1");
+    document.getElementById("list-heading").focus();
+
+  } catch (err) {
+    showStatus(`Fehler: ${err.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    spinner.style.display = "none";
+    btnLabel.textContent = "Proxy anlegen";
+  }
+});
+
+// ── Toggle active/inactive ────────────────────────────────────────────────────
+
+async function toggleProxy(id, activate, name) {
+  const action = activate ? "aktivieren" : "deaktivieren";
+  announce(`${name} wird ${action}…`);
+
+  try {
+    const endpoint = activate ? "activate" : "deactivate";
+    await apiFetch(`/api/proxies/${id}/${endpoint}`, { method: "POST" });
+    showStatus(`Proxy „${name}" wurde ${activate ? "aktiviert" : "deaktiviert"}.`, "success");
+    await loadProxies();
+  } catch (err) {
+    showStatus(`Fehler beim ${action}: ${err.message}`, "error");
+  }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadProxies();
+</script>
+</body>
+</html>

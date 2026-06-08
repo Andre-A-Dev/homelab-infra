@@ -1,0 +1,18 @@
+services:
+  ghostwrite:
+    build: ./app
+    container_name: ghostwrite
+    environment:
+      - GHOST_URL=${GHOST_URL}
+      - GHOST_API_KEY=${GHOST_API_KEY}
+      - PROXY_EMAIL_DOMAIN=${PROXY_EMAIL_DOMAIN:-ghostproxy.internal}
+      - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-10}
+    extra_hosts:
+      - "blog.yourdomain.dedyn.io:192.168.1.10"
+    networks:
+      - caddy_proxy
+    restart: unless-stopped
+
+networks:
+  caddy_proxy:
+    external: true

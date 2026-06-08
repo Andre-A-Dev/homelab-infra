@@ -1,0 +1,18 @@
+services:
+
+# -- Homepage -------------------------------------------------------------------
+
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - caddy_proxy
+
+networks:
+  caddy_proxy:
+    external: true

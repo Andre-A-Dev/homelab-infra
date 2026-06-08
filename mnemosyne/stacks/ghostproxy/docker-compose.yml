@@ -1,0 +1,25 @@
+services:
+  ghostproxy:
+    build: ./app
+    container_name: ghostproxy
+    environment:
+      - GHOST_URL=${GHOST_URL}
+      - GHOST_API_KEY=${GHOST_API_KEY}
+      - PROXY_EMAIL_DOMAIN=${PROXY_EMAIL_DOMAIN:-ghostproxy.internal}
+      - UPLOAD_MAX_MB=${UPLOAD_MAX_MB:-5}
+      - DB_HOST=ghost-db
+      - DB_USER=ghost
+      - DB_PASSWORD=${GHOST_DB_PASSWORD}
+      - DB_NAME=ghost
+    extra_hosts:
+      - "blog.yourdomain.dedyn.io:192.168.1.10"
+    networks:
+      - caddy_proxy
+      - ghost_ghost_internal
+    restart: unless-stopped
+
+networks:
+  caddy_proxy:
+    external: true
+  ghost_ghost_internal:
+    external: true

@@ -1,0 +1,53 @@
+# Boreas – Caddy Reverse Proxy
+# Proxies .home domains to Mnemosyne via Tailscale after relocation.
+# Deploy when Mnemosyne moves to girlfriend's network.
+#
+# Prerequisites:
+#   1. pihole.toml: disable port 443 (same as Zephyros)
+#   2. Pi-hole DNS records: all .home domains → 192.168.1.11 (Boreas)
+#   3. Boreas configured as Tailscale Subnet Router (192.168.1.x/24)
+#   4. Girlfriend's FritzBox subnet changed to 192.168.179.0/24 (avoid conflict)
+
+{
+    auto_https disable_redirects
+}
+
+git.home {
+    tls internal
+    reverse_proxy https://100.x.x.x {
+        header_up Host git.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}
+
+grafana.home {
+    tls internal
+    reverse_proxy https://100.x.x.x {
+        header_up Host grafana.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}
+
+prometheus.home {
+    tls internal
+    reverse_proxy https://100.x.x.x {
+        header_up Host prometheus.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}
+
+alertmanager.home {
+    tls internal
+    reverse_proxy https://100.x.x.x {
+        header_up Host alertmanager.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}

@@ -1,0 +1,12 @@
+services:
+  fusionsolar-exporter:
+    build: .
+    container_name: fusionsolar-exporter
+    environment:
+      - SOLAR_USERNAME=${SOLAR_USERNAME}
+      - SOLAR_PASSWORD=${SOLAR_PASSWORD}
+      - SOLAR_BASE_URL=${SOLAR_BASE_URL}
+    ports:
+      - "9401:9401"
+    restart: unless-stopped
+

@@ -1,0 +1,94 @@
+global:
+  resolve_timeout: 5m
+
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# -- Mute time intervals -------------------------------------------------------
+# Backup runs every Sunday at 04:00, takes up to ~90 minutes.
+# Nextcloud is stopped during this window → ServiceDown alert suppressed.
+time_intervals:
+  - name: backup-window
+    time_intervals:
+      - weekdays: ['sunday']
+        times:
+          - start_time: '03:45'
+            end_time: '05:30'
+
+route:
+  receiver: mnemosyne-warning
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+
+    # -- Nextcloud backup window ------------------------------------------------
+    # Mute ServiceDown for Nextcloud during Sunday backup window.
+    - matchers:
+        - alertname = "ServiceDown"
+        - instance = "https://cloud.yourdomain.dedyn.io"
+      receiver: mnemosyne-critical
+      mute_time_intervals:
+        - backup-window
+
+    # -- Pump alerts (device=pump label) ----------------------------------------
+    - matchers:
+        - device = "pump"
+      receiver: pump-warning
+      repeat_interval: 4h
+      routes:
+        - matchers:
+            - severity = "critical"
+          receiver: pump-critical
+          repeat_interval: 1h
+
+    # -- Server critical ---------------------------------------------------------
+    - matchers:
+        - severity = "critical"
+      receiver: mnemosyne-critical
+      repeat_interval: 1h
+
+    # -- Everything else → mnemosyne-warning (default above) -------------------
+
+
+receivers:
+
+  - name: pump-critical
+    webhook_configs:
+      - url: 'https://ntfy.sh/NTFY_PUMP_CRITICAL_TOPIC?template=alertmanager'
+        send_resolved: true
+
+  - name: pump-warning
+    webhook_configs:
+      - url: 'https://ntfy.sh/NTFY_PUMP_WARNING_TOPIC?template=alertmanager'
+        send_resolved: true
+
+  - name: mnemosyne-critical
+    webhook_configs:
+      - url: 'https://ntfy.sh/NTFY_MNEMOSYNE_CRITICAL_TOPIC?template=alertmanager'
+        send_resolved: true
+
+  - name: mnemosyne-warning
+    webhook_configs:
+      - url: 'https://ntfy.sh/NTFY_MNEMOSYNE_WARNING_TOPIC?template=alertmanager'
+        send_resolved: true
+
+# -- Inhibition rules ----------------------------------------------------------
+inhibit_rules:
+
+  # Suppress warning if critical is already firing for the same alert group
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['alertname']
+
+  # Suppress PiholeDown when the host is completely unreachable (NodeDown)
+  # Avoids redundant alerts when a Pi-hole host goes offline
+  - source_matchers:
+      - alertname = "NodeDown"
+    target_matchers:
+      - alertname = "PiholeDown"
+    equal: ['instance']

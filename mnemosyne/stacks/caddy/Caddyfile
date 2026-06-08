@@ -1,0 +1,137 @@
+# -- Vault ----------------------------------------------------------------
+
+vault.home {
+  tls internal
+
+  reverse_proxy vaultwarden:80 {
+    header_up X-Real-IP {remote_host}
+  }
+}
+
+# -- Nextcloud ------------------------------------------------------------
+
+cloud.yourdomain.dedyn.io {
+  header Strict-Transport-Security "max-age=15552000; includeSubDomains"
+
+  # Handle well-known DAV redirects directly in Caddy (before Apache sees them)
+  handle /.well-known/carddav {
+    redir https://cloud.yourdomain.dedyn.io/remote.php/dav 301
+  }
+  handle /.well-known/caldav {
+    redir https://cloud.yourdomain.dedyn.io/remote.php/dav 301
+  }
+
+  # Forward push endpoint to notify_push service
+  handle /push/* {
+    reverse_proxy notify_push:7867
+  }
+
+  # All other requests go to Nextcloud
+  handle {
+    reverse_proxy nextcloud:80 {
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-Proto {scheme}
+      header_up Host {host}
+    }
+  }
+}
+
+# -- Git ------------------------------------------------------------------
+
+git.home {
+  tls internal
+  reverse_proxy gitea:3000
+}
+
+# -- Syncthing ------------------------------------------------------------
+
+syncthing.home {
+  tls internal
+  reverse_proxy https://192.168.1.10:8384 {
+    transport http {
+      tls_insecure_skip_verify
+    }
+  }
+}
+
+# -- Calibre --------------------------------------------------------------
+
+calibre.home {
+  tls internal
+  reverse_proxy calibre-web:8083
+}
+
+# -- kosync--- ------------------------------------------------------------
+
+kosync.home {
+  tls internal
+  reverse_proxy kosync:3000
+}
+
+# -- Grafana --------------------------------------------------------------
+
+
+grafana.home {
+  tls internal
+  reverse_proxy grafana:3000
+}
+
+# -- Prometheus ------------------------------------------------------------
+
+prometheus.home {
+  tls internal
+  reverse_proxy prometheus:9090
+}
+
+# -- Alertmanager ----------------------------------------------------------
+
+alertmanager.home {
+  tls internal
+  reverse_proxy alertmanager:9093
+}
+
+# -- Viessmann -------------------------------------------------------------
+
+
+viessmann.home {
+    tls internal
+
+    reverse_proxy http://192.168.1.13:8081 {
+        header_up Authorization "Bearer {env.VIESSMANN_API_TOKEN}"
+    }
+}
+
+# -- Ghost -----------------------------------------------------------------
+
+blog.yourdomain.dedyn.io {
+  reverse_proxy ghost:2368
+}
+
+ghostproxy.home {
+  tls internal
+  reverse_proxy ghostproxy:5000
+}
+
+ghostwrite.home {
+  tls internal
+  reverse_proxy ghostwrite:5000
+}
+
+# -- Homepage --------------------------------------------------------------
+
+homepage.home {
+  tls internal
+  reverse_proxy homepage:3000
+}
+
+# -- Immich ---------------------------------------------------------------
+
+immich.home {
+  tls internal
+  reverse_proxy immich-server:2283
+}
+
+# Tailscale access — HTTP only, no TLS (Tailscale encrypts the tunnel itself)
+http://100.x.x.x:2283 {
+  reverse_proxy immich-server:2283
+}

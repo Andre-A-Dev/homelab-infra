@@ -1,0 +1,16 @@
+[Unit]
+Description=vcontrold - Viessmann heating control daemon
+After=network.target
+# Wait for USB adapter to be available
+After=dev-ttyUSB0.device
+Requires=dev-ttyUSB0.device
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/vcontrold -n -x /etc/vcontrold/vcontrold.xml -d /dev/ttyUSB0
+Restart=on-failure
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

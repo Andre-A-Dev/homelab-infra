@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Docker Container Update Metrics every 2 hours
+Requires=container-update-metrics.service
+
+[Timer]
+# First run 5 minutes after boot (let Docker fully start up)
+OnBootSec=5min
+# Then every 24 hours
+OnUnitActiveSec=24h
+# If a run was missed (e.g. system was off), catch up immediately
+Persistent=true
+
+[Install]
+WantedBy=timers.target

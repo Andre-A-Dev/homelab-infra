@@ -1,0 +1,32 @@
+services:
+  calibre-web:
+    image: lscr.io/linuxserver/calibre-web:latest
+    container_name: calibre-web
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Berlin
+    volumes:
+      - /mnt/codex/calibre-library:/books
+      - /mnt/codex/calibre-web-config:/config
+#    ports:
+#      - 8083:8083
+    restart: unless-stopped
+    networks:
+      - caddy_proxy
+
+  kosync:
+    image: ghcr.io/nperez0111/koreader-sync:latest
+    container_name: kosync
+    volumes:
+      - /mnt/codex/kosync/data:/app/data
+#    ports:
+#      - 3000:3000
+    restart: unless-stopped
+    networks:
+      - caddy_proxy
+
+networks:
+  caddy_proxy:
+    external: true
+

@@ -1,0 +1,22 @@
+services:
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    env_file:
+      - .env
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - /mnt/vault/caddy/data:/data
+      - /mnt/vault/caddy/config:/config
+    networks:
+      - caddy_proxy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+networks:
+  caddy_proxy:
+    external: true

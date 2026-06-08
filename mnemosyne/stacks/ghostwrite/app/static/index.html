@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <title>Ghost Write</title>
+  <link rel="stylesheet" href="/easymde.min.css">
+  <link rel="stylesheet" href="/all.min.css">
+  <script src="/easymde.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f0f0f; --surface: #1a1a1a; --surface2: #222;
+      --border: #2e2e2e; --ink: #e8e8e8; --muted: #888;
+      --accent: #7c6af7; --accent-fg: #fff;
+      --danger: #f87171; --success: #4ade80;
+      --radius: 6px; --shadow: 0 1px 4px rgba(0,0,0,0.4);
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f7f5f2; --surface: #fff; --surface2: #f0ece6;
+        --border: #ddd8d0; --ink: #1a1a1a; --muted: #6b6560;
+        --accent: #5b4fcf; --shadow: 0 1px 4px rgba(0,0,0,0.08);
+      }
+    }
+    ::selection { background: var(--accent); color: #fff; }
+
+    /* ── CodeMirror selection ── */
+    .CodeMirror-selected { background: var(--accent) !important; }
+    .CodeMirror-focused .CodeMirror-selected { background: var(--accent) !important; }
+    .CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: var(--accent); color: #fff; }
+    .CodeMirror-line::-moz-selection, .CodeMirror-line > span::-moz-selection, .CodeMirror-line > span > span::-moz-selection { background: var(--accent); color: #fff; }
+
+    body { background: var(--bg); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 16px; line-height: 1.6; min-height: 100vh; }
+
+    .skip-link { position: absolute; top: -100%; left: 0; background: var(--accent); color: var(--accent-fg); padding: 12px 20px; font-weight: 600; text-decoration: none; z-index: 100; }
+    .skip-link:focus { top: 0; }
+
+    header { background: #111; color: #e8e8e8; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; border-bottom: 1px solid #222; }
+    header h1 { font-size: 1rem; font-weight: 600; }
+
+    #status-region { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+
+    #status-banner { display: none; padding: 12px 16px; border-radius: var(--radius); margin: 16px 24px 0; font-size: 14px; font-weight: 500; }
+    #status-banner.success { display: block; background: rgba(74,222,128,0.1); color: var(--success); border: 1px solid rgba(74,222,128,0.3); }
+    #status-banner.error { display: block; background: rgba(248,113,113,0.1); color: var(--danger); border: 1px solid rgba(248,113,113,0.3); }
+    #status-banner a { color: inherit; font-weight: 700; }
+
+    main { max-width: 860px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    label { font-size: 14px; font-weight: 500; color: var(--ink); }
+    label .required { color: var(--danger); margin-left: 3px; }
+
+    input[type="text"], input[type="datetime-local"], select, textarea {
+      width: 100%; padding: 10px 12px; background: var(--surface); color: var(--ink);
+      border: 1.5px solid var(--border); border-radius: var(--radius); font-size: 15px; font-family: inherit; appearance: none;
+    }
+    input:focus, select:focus, textarea:focus { outline: 3px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+    input[aria-invalid="true"] { border-color: var(--danger); }
+    .field-hint { font-size: 12px; color: var(--muted); }
+    .field-error { font-size: 13px; color: var(--danger); font-weight: 500; display: none; }
+    .field-error.visible { display: block; }
+
+    .proxy-select-wrap { display: flex; align-items: center; gap: 12px; }
+    #proxy-avatar-preview { width: 40px; height: 40px; border-radius: 50%; background: var(--border); overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+    #proxy-avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+    .proxy-select-wrap select { flex: 1; }
+
+    .EasyMDEContainer { border-radius: var(--radius); border: 1.5px solid var(--border); }
+    .EasyMDEContainer:focus-within { outline: 3px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+    .EasyMDEContainer .CodeMirror { background: var(--surface); color: var(--ink); border-radius: 0 0 var(--radius) var(--radius); min-height: 280px; font-size: 15px; line-height: 1.7; }
+    .EasyMDEContainer .editor-toolbar { background: var(--surface2); border-color: var(--border); border-radius: var(--radius) var(--radius) 0 0; }
+    .EasyMDEContainer .editor-toolbar button { color: var(--ink) !important; }
+    .EasyMDEContainer .editor-toolbar button:hover, .EasyMDEContainer .editor-toolbar button.active { background: var(--border); border-color: var(--border); }
+    .EasyMDEContainer .editor-toolbar i.separator { border-color: var(--border); }
+    .CodeMirror-cursor { border-left-color: var(--accent) !important; }
+
+    .images-section, .feature-image-section, .publish-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+    .images-section h2, .feature-image-section h2, .publish-section h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+
+    .image-item { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 10px; display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; align-items: start; }
+    .image-thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); }
+    .image-info { display: flex; flex-direction: column; gap: 6px; }
+    .image-info input { padding: 7px 10px; font-size: 14px; }
+    .image-url { font-size: 12px; color: var(--muted); word-break: break-all; }
+    .btn-remove-image { background: transparent; border: none; color: var(--danger); font-size: 18px; cursor: pointer; padding: 4px; line-height: 1; }
+    .btn-remove-image:focus { outline: 3px solid var(--accent); border-radius: 2px; }
+
+    .upload-area { border: 2px dashed var(--border); border-radius: var(--radius); padding: 20px; text-align: center; cursor: pointer; transition: border-color 0.15s; }
+    .upload-area:hover, .upload-area:focus-within { border-color: var(--accent); }
+    .upload-area input { display: none; }
+    .upload-area label { display: flex; flex-direction: column; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; color: var(--muted); }
+    .upload-icon { font-size: 28px; }
+
+    .tags-wrap { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); min-height: 44px; }
+    .tag-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--accent); color: var(--accent-fg); border-radius: 20px; font-size: 13px; }
+    .tag-chip button { background: none; border: none; color: var(--accent-fg); cursor: pointer; font-size: 16px; line-height: 1; padding: 0; }
+    .tag-chip button:focus { outline: 2px solid white; border-radius: 2px; }
+    .tag-input-wrap { display: flex; gap: 8px; margin-top: 6px; }
+    .tag-input-wrap input { flex: 1; }
+
+    .feature-preview { width: 100%; max-height: 180px; object-fit: cover; border-radius: 4px; margin-bottom: 10px; border: 1px solid var(--border); }
+
+    .publish-mode { display: flex; flex-direction: column; gap: 10px; }
+    .radio-option { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: 14px; }
+    .radio-option input[type="radio"] { width: auto; accent-color: var(--accent); }
+    #scheduled-time-wrap { display: none; margin-top: 8px; }
+    #scheduled-time-wrap.visible { display: block; }
+
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 22px; border-radius: var(--radius); font-size: 15px; font-weight: 500; font-family: inherit; border: none; cursor: pointer; transition: opacity 0.15s; }
+    .btn:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .btn:active { opacity: 0.85; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: var(--accent-fg); }
+    .btn-primary:hover:not(:disabled) { opacity: 0.88; }
+    .btn-secondary { background: transparent; color: var(--ink); border: 1.5px solid var(--border); }
+    .btn-secondary:hover:not(:disabled) { background: var(--surface2); }
+
+    .action-row { display: flex; gap: 12px; flex-wrap: wrap; padding-bottom: 40px; }
+    .spinner { display: none; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #autosave-indicator { font-size: 12px; color: var(--muted); text-align: right; }
+
+    @media (max-width: 600px) {
+      main { padding: 16px; } header { padding: 12px 16px; }
+      .image-item { grid-template-columns: 48px 1fr auto; }
+    }
+  </style>
+</head>
+<body>
+
+<a href="#main-content" class="skip-link">Zum Hauptinhalt springen</a>
+<div id="status-region" role="status" aria-live="polite" aria-atomic="true"></div>
+
+<header>
+  <h1>Ghost Write</h1>
+  <span id="autosave-indicator" aria-live="polite"></span>
+</header>
+
+<div id="status-banner" role="alert" aria-atomic="true"></div>
+
+<main id="main-content">
+
+  <div class="form-group">
+    <label for="proxy-select">Schreibt als <span class="required" aria-label="Pflichtfeld">*</span></label>
+    <div class="proxy-select-wrap">
+      <div id="proxy-avatar-preview" aria-hidden="true">👤</div>
+      <select id="proxy-select" aria-required="true" aria-describedby="proxy-error">
+        <option value="">Wird geladen…</option>
+      </select>
+    </div>
+    <div id="proxy-error" class="field-error" aria-live="polite"></div>
+  </div>
+
+  <div class="form-group">
+    <label for="post-title">Titel <span class="required" aria-label="Pflichtfeld">*</span></label>
+    <input type="text" id="post-title" autocomplete="off" aria-required="true" aria-describedby="title-error" placeholder="Titel des Beitrags…">
+    <div id="title-error" class="field-error" aria-live="polite"></div>
+  </div>
+
+  <div class="form-group">
+    <label id="editor-label">Inhalt <span class="required" aria-label="Pflichtfeld">*</span></label>
+    <textarea id="post-content" aria-labelledby="editor-label" aria-required="true" aria-describedby="content-error" placeholder="Schreibe hier…"></textarea>
+    <div id="content-error" class="field-error" aria-live="polite"></div>
+  </div>
+
+  <section class="images-section" aria-labelledby="images-heading">
+    <h2 id="images-heading">Bilder im Beitrag</h2>
+    <div id="image-list" aria-label="Hochgeladene Bilder"></div>
+    <div class="upload-area">
+      <input type="file" id="image-upload" accept="image/jpeg,image/png,image/gif,image/webp" aria-describedby="image-upload-hint" multiple>
+      <label for="image-upload">
+        <span class="upload-icon" aria-hidden="true">🖼️</span>
+        <span>Bild auswählen oder hierher ziehen</span>
+        <span id="image-upload-hint" style="font-size:12px;">JPEG, PNG, GIF, WebP · max. 10 MB</span>
+      </label>
+    </div>
+  </section>
+
+  <section class="feature-image-section" aria-labelledby="feature-heading">
+    <h2 id="feature-heading">Coverbild (Feature Image)</h2>
+    <div id="feature-preview-wrap" style="display:none;">
+      <img id="feature-preview" class="feature-preview" src="" alt="">
+    </div>
+    <div class="form-group" style="margin-bottom:10px;">
+      <label for="feature-upload">Bild hochladen</label>
+      <input type="file" id="feature-upload" accept="image/jpeg,image/png,image/gif,image/webp" aria-describedby="feature-hint">
+      <span id="feature-hint" class="field-hint">Optional · max. 10 MB</span>
+    </div>
+    <div class="form-group" id="feature-alt-wrap" style="display:none;">
+      <label for="feature-alt">Alternativtext <span class="required" aria-label="Pflichtfeld">*</span></label>
+      <input type="text" id="feature-alt" autocomplete="off" aria-required="true" aria-describedby="feature-alt-error" placeholder="Beschreibung für Screenreader…">
+      <div id="feature-alt-error" class="field-error" aria-live="polite"></div>
+      <button type="button" class="btn btn-secondary" id="feature-remove-btn" aria-label="Coverbild entfernen" style="margin-top:8px;font-size:13px;padding:6px 12px;color:var(--danger);border-color:var(--danger);">Coverbild entfernen</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="tags-heading">
+    <div class="form-group">
+      <label id="tags-heading">Tags</label>
+      <div class="tags-wrap" id="tags-wrap" aria-label="Gewählte Tags"></div>
+      <div class="tag-input-wrap">
+        <input type="text" id="tag-input" list="tag-suggestions" autocomplete="off" placeholder="Tag hinzufügen…" aria-label="Neuen Tag eingeben" aria-describedby="tag-hint">
+        <datalist id="tag-suggestions"></datalist>
+        <button class="btn btn-secondary" id="tag-add-btn" type="button" style="padding:10px 14px;">Hinzufügen</button>
+      </div>
+      <span id="tag-hint" class="field-hint">Enter oder Button drücken</span>
+    </div>
+  </section>
+
+  <section class="publish-section" aria-labelledby="publish-heading">
+    <h2 id="publish-heading">Veröffentlichung</h2>
+    <div class="publish-mode" role="radiogroup" aria-labelledby="publish-heading">
+      <label class="radio-option"><input type="radio" name="publish-mode" value="draft" checked> Als Entwurf speichern</label>
+      <label class="radio-option"><input type="radio" name="publish-mode" value="published"> Jetzt veröffentlichen</label>
+      <label class="radio-option"><input type="radio" name="publish-mode" value="scheduled"> Geplant veröffentlichen</label>
+    </div>
+    <div id="scheduled-time-wrap" aria-live="polite">
+      <div class="form-group" style="margin-top:12px;">
+        <label for="scheduled-time">Datum und Uhrzeit</label>
+        <input type="datetime-local" id="scheduled-time" aria-describedby="scheduled-hint">
+        <span id="scheduled-hint" class="field-hint">Zeitzone: lokal</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="action-row">
+    <button class="btn btn-primary" id="submit-btn" type="button">
+      <span class="spinner" id="submit-spinner" aria-hidden="true"></span>
+      <span id="submit-label">Speichern</span>
+    </button>
+    <button class="btn btn-secondary" id="clear-btn" type="button">Formular leeren</button>
+  </div>
+
+</main>
+
+<script>
+// ── Spoiler helper (global so onclick in generated HTML can call it) ───────────
+function toggleSpoiler(el) {
+  var hidden = el.getAttribute('data-hidden') === 'true';
+  if (hidden) {
+    el.style.color = 'inherit';
+    el.style.background = 'transparent';
+    el.setAttribute('data-hidden', 'false');
+    el.setAttribute('aria-label', 'Spoiler: zum Verbergen klicken');
+  } else {
+    el.style.color = '#555';
+    el.style.background = '#555';
+    el.setAttribute('data-hidden', 'true');
+    el.setAttribute('aria-label', 'Spoiler: zum Anzeigen klicken');
+  }
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+var state = { proxies: [], allTags: [], selectedTags: [], images: [], featureImageUrl: '', featureImageAlt: '' };
+
+// ── VoiceOver ─────────────────────────────────────────────────────────────────
+function announce(msg) {
+  var r = document.getElementById('status-region');
+  r.textContent = '';
+  requestAnimationFrame(function() { r.textContent = msg; });
+}
+
+function showStatus(msg, type, linkUrl, linkText) {
+  var b = document.getElementById('status-banner');
+  b.innerHTML = '';
+  var span = document.createElement('span');
+  span.textContent = msg;
+  b.appendChild(span);
+  if (linkUrl) {
+    b.appendChild(document.createTextNode(' \u2192 '));
+    var a = document.createElement('a');
+    a.href = linkUrl; a.target = '_blank'; a.rel = 'noopener';
+    a.textContent = linkText || 'Ansehen';
+    b.appendChild(a);
+  }
+  b.className = type;
+  announce(msg + (linkUrl ? ' ' + linkUrl : ''));
+  b.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function setFieldError(inputId, errorId, msg) {
+  var input = document.getElementById(inputId);
+  var err = document.getElementById(errorId);
+  if (msg) {
+    input && input.setAttribute('aria-invalid', 'true');
+    if (err) { err.textContent = msg; err.classList.add('visible'); }
+  } else {
+    input && input.removeAttribute('aria-invalid');
+    if (err) { err.textContent = ''; err.classList.remove('visible'); }
+  }
+}
+
+function clearErrors() {
+  [['proxy-select','proxy-error'],['post-title','title-error'],['post-content','content-error']].forEach(function(p) {
+    setFieldError(p[0], p[1], '');
+  });
+}
+
+// ── Autosave ──────────────────────────────────────────────────────────────────
+var autosaveTimer;
+function saveToLocal() {
+  if (autosaveTimer === null) return;
+  try {
+    localStorage.setItem('ghostwrite_draft', JSON.stringify({
+      proxyId: document.getElementById('proxy-select').value,
+      title: document.getElementById('post-title').value,
+      content: mde ? mde.value() : '',
+      tags: state.selectedTags,
+      ts: Date.now()
+    }));
+    document.getElementById('autosave-indicator').textContent = 'Entwurf gespeichert ' + new Date().toLocaleTimeString('de');
+  } catch(e) {}
+}
+function loadFromLocal() {
+  try {
+    var raw = localStorage.getItem('ghostwrite_draft');
+    if (!raw) return;
+    var d = JSON.parse(raw);
+    if (d.title) document.getElementById('post-title').value = d.title;
+    if (d.content && mde) { mde.codemirror.setValue(d.content); mde.codemirror.clearHistory(); }
+    if (d.tags && Array.isArray(d.tags)) { state.selectedTags = d.tags; renderTags(); }
+    if (d.proxyId) { document.getElementById('proxy-select').value = d.proxyId; updateProxyAvatar(); }
+    if (d.title || d.content) document.getElementById('autosave-indicator').textContent = 'Entwurf wiederhergestellt';
+  } catch(e) {}
+}
+function scheduleAutosave() { clearTimeout(autosaveTimer); autosaveTimer = setTimeout(saveToLocal, 2000); }
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function apiFetch(path, opts) {
+  opts = opts || {};
+  var resp = await fetch(path, Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts));
+  var data = await resp.json().catch(function() { return {}; });
+  if (!resp.ok) throw new Error(data.error || 'HTTP ' + resp.status);
+  return data;
+}
+
+// ── Proxies ───────────────────────────────────────────────────────────────────
+async function loadProxies() {
+  try {
+    state.proxies = await apiFetch('/api/proxies');
+    var sel = document.getElementById('proxy-select');
+    sel.innerHTML = '<option value="">— Proxy wählen —</option>';
+    state.proxies.forEach(function(p) {
+      var opt = document.createElement('option');
+      opt.value = p.id; opt.textContent = p.name; opt.dataset.avatar = p.avatar || '';
+      sel.appendChild(opt);
+    });
+    var last = localStorage.getItem('ghostwrite_lastProxy');
+    if (last) { sel.value = last; updateProxyAvatar(); }
+  } catch(e) {
+    document.getElementById('proxy-select').innerHTML = '<option value="">Fehler beim Laden</option>';
+  }
+}
+function updateProxyAvatar() {
+  var sel = document.getElementById('proxy-select');
+  var opt = sel.options[sel.selectedIndex];
+  var avatar = opt && opt.dataset.avatar;
+  var wrap = document.getElementById('proxy-avatar-preview');
+  wrap.innerHTML = avatar ? '<img src="' + avatar + '" alt="">' : '👤';
+  if (sel.value) localStorage.setItem('ghostwrite_lastProxy', sel.value);
+}
+document.getElementById('proxy-select').addEventListener('change', function() { updateProxyAvatar(); scheduleAutosave(); });
+
+// ── Tags ──────────────────────────────────────────────────────────────────────
+async function loadTags() {
+  try {
+    state.allTags = await apiFetch('/api/tags');
+    var dl = document.getElementById('tag-suggestions');
+    state.allTags.forEach(function(t) { var opt = document.createElement('option'); opt.value = t.name; dl.appendChild(opt); });
+  } catch(e) {}
+}
+function addTag(name) {
+  name = (name || '').trim();
+  if (!name || state.selectedTags.includes(name)) return;
+  state.selectedTags.push(name); renderTags(); scheduleAutosave();
+}
+function removeTag(name) { state.selectedTags = state.selectedTags.filter(function(t) { return t !== name; }); renderTags(); scheduleAutosave(); }
+function renderTags() {
+  var wrap = document.getElementById('tags-wrap');
+  wrap.innerHTML = '';
+  state.selectedTags.forEach(function(name) {
+    var chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.innerHTML = '<span>' + escHtml(name) + '</span><button type="button" aria-label="Tag ' + escHtml(name) + ' entfernen" onclick="removeTag(\'' + escHtml(name) + '\')">×</button>';
+    wrap.appendChild(chip);
+  });
+}
+document.getElementById('tag-add-btn').addEventListener('click', function() {
+  var inp = document.getElementById('tag-input'); addTag(inp.value); inp.value = ''; inp.focus();
+});
+document.getElementById('tag-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); addTag(this.value); this.value = ''; }
+});
+
+// ── Inline images ─────────────────────────────────────────────────────────────
+document.getElementById('image-upload').addEventListener('change', async function() {
+  var files = Array.from(this.files);
+  for (var i = 0; i < files.length; i++) { await uploadInlineImage(files[i]); }
+  this.value = '';
+});
+async function uploadInlineImage(file) {
+  if (file.size > 10 * 1024 * 1024) { showStatus('Bild zu groß: ' + file.name + ' (max. 10 MB)', 'error'); return; }
+  announce('Bild wird hochgeladen: ' + file.name);
+  var formData = new FormData();
+  formData.append('image', file);
+  try {
+    var resp = await fetch('/api/images', { method: 'POST', body: formData });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Upload fehlgeschlagen');
+    state.images.push({ file: file.name, url: data.url, alt: '' });
+    renderImageList();
+    announce('Bild hochgeladen: ' + file.name + '. Bitte Alternativtext eingeben.');
+  } catch(e) { showStatus('Bild-Upload fehlgeschlagen: ' + e.message, 'error'); }
+}
+function renderImageList() {
+  var list = document.getElementById('image-list');
+  list.innerHTML = '';
+  state.images.forEach(function(img, idx) {
+    var item = document.createElement('div'); item.className = 'image-item';
+    var thumb = document.createElement('img'); thumb.className = 'image-thumb'; thumb.src = img.url; thumb.alt = '';
+    var info = document.createElement('div'); info.className = 'image-info';
+    var altInput = document.createElement('input'); altInput.type = 'text'; altInput.value = img.alt;
+    altInput.placeholder = 'Alternativtext (Pflicht)…';
+    altInput.setAttribute('aria-label', 'Alternativtext für ' + img.file);
+    altInput.setAttribute('aria-required', 'true');
+    altInput.addEventListener('input', (function(i) { return function() { state.images[i].alt = this.value; }; })(idx));
+    var urlDiv = document.createElement('div'); urlDiv.className = 'image-url'; urlDiv.textContent = img.url;
+    var copyBtn = document.createElement('button'); copyBtn.className = 'btn btn-secondary';
+    copyBtn.style.cssText = 'font-size:12px;padding:4px 8px;margin-top:4px;';
+    copyBtn.setAttribute('aria-label', 'Markdown-Code für ' + img.file + ' kopieren');
+    copyBtn.textContent = 'Markdown kopieren';
+    copyBtn.title = 'Kopiert ![Alt](URL) — im Editor einfügen für genaue Position, sonst wird Bild automatisch am Ende angehängt.';
+    copyBtn.addEventListener('click', (function(i, btn) { return function() {
+      var md = '![' + state.images[i].alt + '](' + state.images[i].url + ')';
+      navigator.clipboard.writeText(md).then(function() {
+        btn.textContent = '✓ Kopiert!';
+        setTimeout(function() { btn.textContent = 'Markdown kopieren'; }, 2000);
+        announce('Markdown-Code kopiert.');
+      });
+    }; })(idx, copyBtn));
+    var hint = document.createElement('div');
+    hint.style.cssText = 'font-size:11px;color:var(--muted);margin-top:3px;';
+    hint.textContent = 'Im Editor einfügen für genaue Position — sonst automatisch am Ende.';
+    var removeBtn = document.createElement('button'); removeBtn.className = 'btn-remove-image';
+    removeBtn.setAttribute('aria-label', 'Bild ' + img.file + ' entfernen'); removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', (function(i, fname) { return function() {
+      state.images.splice(i, 1); renderImageList(); announce('Bild entfernt: ' + fname);
+    }; })(idx, img.file));
+    info.appendChild(altInput); info.appendChild(urlDiv); info.appendChild(copyBtn); info.appendChild(hint);
+    item.appendChild(thumb); item.appendChild(info); item.appendChild(removeBtn);
+    list.appendChild(item);
+  });
+}
+
+// ── Feature image ─────────────────────────────────────────────────────────────
+document.getElementById('feature-upload').addEventListener('change', async function() {
+  var file = this.files[0]; if (!file) return;
+  if (file.size > 10 * 1024 * 1024) { showStatus('Coverbild zu groß (max. 10 MB).', 'error'); return; }
+  announce('Coverbild wird hochgeladen…');
+  var formData = new FormData(); formData.append('image', file);
+  try {
+    var resp = await fetch('/api/images', { method: 'POST', body: formData });
+    var data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Upload fehlgeschlagen');
+    state.featureImageUrl = data.url;
+    document.getElementById('feature-preview').src = data.url;
+    document.getElementById('feature-preview-wrap').style.display = 'block';
+    document.getElementById('feature-alt-wrap').style.display = 'block';
+    document.getElementById('feature-alt').focus();
+    announce('Coverbild hochgeladen. Bitte Alternativtext eingeben.');
+  } catch(e) { showStatus('Coverbild-Upload fehlgeschlagen: ' + e.message, 'error'); }
+});
+document.getElementById('feature-alt').addEventListener('input', function() { state.featureImageAlt = this.value; });
+document.getElementById('feature-remove-btn').addEventListener('click', function() {
+  state.featureImageUrl = ''; state.featureImageAlt = '';
+  document.getElementById('feature-preview-wrap').style.display = 'none';
+  document.getElementById('feature-alt-wrap').style.display = 'none';
+  document.getElementById('feature-alt').value = '';
+  document.getElementById('feature-upload').value = '';
+  announce('Coverbild entfernt.');
+});
+
+// ── Publish mode ──────────────────────────────────────────────────────────────
+document.querySelectorAll('input[name="publish-mode"]').forEach(function(radio) {
+  radio.addEventListener('change', function() {
+    var wrap = document.getElementById('scheduled-time-wrap');
+    var label = document.getElementById('submit-label');
+    if (this.value === 'scheduled') { wrap.classList.add('visible'); label.textContent = 'Planen'; }
+    else { wrap.classList.remove('visible'); label.textContent = this.value === 'published' ? 'Veröffentlichen' : 'Speichern'; }
+  });
+});
+
+// ── Submit ────────────────────────────────────────────────────────────────────
+document.getElementById('submit-btn').addEventListener('click', async function() {
+  clearErrors();
+  var proxyId = document.getElementById('proxy-select').value;
+  var title = document.getElementById('post-title').value.trim();
+  var markdown = mde ? mde.value().trim() : '';
+  var mode = document.querySelector('input[name="publish-mode"]:checked').value;
+  var schedAt = document.getElementById('scheduled-time').value;
+  var valid = true;
+
+  if (!proxyId) { setFieldError('proxy-select', 'proxy-error', 'Bitte einen Proxy wählen.'); valid = false; }
+  if (!title) { setFieldError('post-title', 'title-error', 'Bitte einen Titel eingeben.'); valid = false; }
+  if (!markdown) { setFieldError('post-content', 'content-error', 'Bitte einen Inhalt schreiben.'); valid = false; }
+  var missingAlt = state.images.filter(function(i) { return !i.alt.trim(); });
+  if (missingAlt.length > 0) { showStatus('Bitte Alternativtext für alle ' + missingAlt.length + ' Bild(er) eingeben.', 'error'); valid = false; }
+  if (state.featureImageUrl && !state.featureImageAlt.trim()) { setFieldError('feature-alt', 'feature-alt-error', 'Bitte Alternativtext eingeben.'); valid = false; }
+  if (mode === 'scheduled' && !schedAt) { showStatus('Bitte Datum und Uhrzeit eingeben.', 'error'); valid = false; }
+  if (!valid) { announce('Bitte Fehler korrigieren.'); return; }
+
+  clearTimeout(autosaveTimer);
+  autosaveTimer = null;
+  var btn = document.getElementById('submit-btn');
+  var spinner = document.getElementById('submit-spinner');
+  btn.disabled = true; spinner.style.display = 'block';
+  announce('Beitrag wird gespeichert…');
+
+  // Append images not already in markdown
+  var finalMarkdown = markdown;
+  state.images.forEach(function(img) {
+    if (!finalMarkdown.includes(img.url)) { finalMarkdown += '\n\n![' + img.alt + '](' + img.url + ')'; }
+  });
+
+  try {
+    var payload = { title: title, markdown: finalMarkdown, authorId: proxyId, tags: state.selectedTags,
+      featureImageUrl: state.featureImageUrl, featureImageAlt: state.featureImageAlt, status: mode };
+    if (mode === 'scheduled' && schedAt) payload.publishedAt = new Date(schedAt).toISOString();
+
+    var result = await apiFetch('/api/posts', { method: 'POST', body: JSON.stringify(payload) });
+    var labels = { draft: 'Entwurf gespeichert.', published: 'Beitrag veröffentlicht!', scheduled: 'Beitrag geplant.' };
+    var showLink = result.status === 'published' && result.url;
+    showStatus(labels[result.status] || 'Gespeichert.', 'success', showLink ? result.url : null, 'Beitrag ansehen');
+
+    localStorage.setItem('ghostwrite_draft', JSON.stringify({proxyId:'',title:'',content:'',tags:[],ts:0}));
+    document.getElementById('autosave-indicator').textContent = '';
+    clearForm();
+  } catch(e) {
+    showStatus('Fehler: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; spinner.style.display = 'none';
+    document.getElementById('submit-label').textContent = 'Speichern';
+  }
+});
+
+// ── Clear form ────────────────────────────────────────────────────────────────
+function clearForm() {
+  document.getElementById('post-title').value = '';
+  if (mde) { mde.codemirror.setValue(''); mde.codemirror.clearHistory(); }
+  state.selectedTags = []; state.images = [];
+  state.featureImageUrl = ''; state.featureImageAlt = '';
+  renderTags(); renderImageList();
+  document.getElementById('feature-preview-wrap').style.display = 'none';
+  document.getElementById('feature-alt-wrap').style.display = 'none';
+  document.getElementById('feature-alt').value = '';
+  document.getElementById('feature-upload').value = '';
+  document.querySelector('input[name="publish-mode"][value="draft"]').checked = true;
+  document.getElementById('scheduled-time-wrap').classList.remove('visible');
+  document.getElementById('submit-label').textContent = 'Speichern';
+  clearErrors();
+}
+document.getElementById('clear-btn').addEventListener('click', function() {
+  if (confirm('Formular wirklich leeren?')) {
+    localStorage.removeItem('ghostwrite_draft'); clearForm(); announce('Formular geleert.');
+  }
+});
+
+document.getElementById('post-title').addEventListener('input', scheduleAutosave);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── EasyMDE ───────────────────────────────────────────────────────────────────
+var mde;
+function initEditor() {
+  mde = new EasyMDE({
+    element: document.getElementById('post-content'),
+    autofocus: false, spellChecker: false, status: false,
+    autosave: { enabled: false },
+    placeholder: 'Schreibe hier in Markdown…',
+    toolbar: [
+      { name: 'bold', action: EasyMDE.toggleBold, className: 'fa fa-bold', title: 'Fett' },
+      { name: 'italic', action: EasyMDE.toggleItalic, className: 'fa fa-italic', title: 'Kursiv' },
+      { name: 'heading', action: EasyMDE.toggleHeadingSmaller, className: 'fa fa-header', title: 'Überschrift' },
+      '|',
+      { name: 'quote', action: EasyMDE.toggleBlockquote, className: 'fa fa-quote-left', title: 'Zitat' },
+      { name: 'unordered-list', action: EasyMDE.toggleUnorderedList, className: 'fa fa-list-ul', title: 'Liste' },
+      { name: 'ordered-list', action: EasyMDE.toggleOrderedList, className: 'fa fa-list-ol', title: 'Nummerierte Liste' },
+      '|',
+      { name: 'link', action: EasyMDE.drawLink, className: 'fa fa-link', title: 'Link' },
+      { name: 'horizontal-rule', action: EasyMDE.drawHorizontalRule, className: 'fa fa-minus', title: 'Trennlinie' },
+      '|',
+      {
+        name: 'spoiler',
+        action: function(editor) {
+          var cm = editor.codemirror;
+          var selected = cm.getSelection() || 'Spoiler-Inhalt';
+          var uid = 'sp' + Math.random().toString(36).slice(2,7);
+          var snippet = '<span id="' + uid + '"'
+            + ' style="background:#555;color:#555;border-radius:3px;padding:0 4px;cursor:pointer"'
+            + ' role="button"'
+            + ' data-hidden="true"'
+            + ' aria-label="Spoiler: zum Anzeigen klicken"'
+            + ' onclick="toggleSpoiler(this)">'
+            + selected + '</span>';
+          cm.replaceSelection(snippet);
+          cm.focus();
+        },
+        className: 'fa fa-eye-slash',
+        title: 'Spoiler einfügen',
+      },
+      '|',
+      { name: 'preview', action: EasyMDE.togglePreview, className: 'fa fa-eye no-disable', title: 'Vorschau' },
+    ],
+  });
+  mde.codemirror.on('change', scheduleAutosave);
+  loadFromLocal();
+}
+
+Promise.all([loadProxies(), loadTags()]).then(function() { initEditor(); });
+</script>
+</body>
+</html>

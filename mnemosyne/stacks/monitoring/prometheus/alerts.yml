@@ -1,0 +1,127 @@
+groups:
+
+  # -- System Alerts (Mnemosyne, Boreas, Hephaestus, Zephyros) -----------------
+  - name: system
+    rules:
+
+      - alert: DiskSpaceWarning
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",mountpoint="/"}
+              / node_filesystem_size_bytes{fstype!="tmpfs",mountpoint="/"})) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: Disk usage above 80%"
+          description: "Root partition is {{ printf \"%.1f\" $value }}% full."
+
+      - alert: DiskSpaceCritical
+        expr: |
+          (1 - (node_filesystem_avail_bytes{fstype!="tmpfs",mountpoint="/"}
+              / node_filesystem_size_bytes{fstype!="tmpfs",mountpoint="/"})) * 100 > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }}: Disk usage CRITICAL (> 90%)"
+          description: "Root partition is {{ printf \"%.1f\" $value }}% full - action required!"
+
+      # Mnemosyne data partitions — Nextcloud, backups, Vaultwarden
+      - alert: DataDiskWarning
+        expr: |
+          (1 - (node_filesystem_avail_bytes{instance="mnemosyne",fstype!="tmpfs",mountpoint=~"/mnt/(codex|vault)"}
+              / node_filesystem_size_bytes{instance="mnemosyne",fstype!="tmpfs",mountpoint=~"/mnt/(codex|vault)"})) * 100 > 75
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "mnemosyne: Data partition {{ $labels.mountpoint }} above 75%"
+          description: "{{ $labels.mountpoint }} is {{ printf \"%.1f\" $value }}% full."
+
+      - alert: DataDiskCritical
+        expr: |
+          (1 - (node_filesystem_avail_bytes{instance="mnemosyne",fstype!="tmpfs",mountpoint=~"/mnt/(codex|vault)"}
+              / node_filesystem_size_bytes{instance="mnemosyne",fstype!="tmpfs",mountpoint=~"/mnt/(codex|vault)"})) * 100 > 90
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "mnemosyne: Data partition {{ $labels.mountpoint }} CRITICAL (> 90%)"
+          description: "{{ $labels.mountpoint }} is {{ printf \"%.1f\" $value }}% full - action required!"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: Memory usage above 90%"
+          description: "RAM utilisation at {{ printf \"%.1f\" $value }}%."
+
+      - alert: HighCpuLoad
+        expr: |
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: CPU load persistently high"
+          description: "CPU utilisation at {{ printf \"%.1f\" $value }}% for 15 minutes."
+
+      - alert: NodeDown
+        expr: up{job="node-exporter"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }}: Node Exporter unreachable"
+          description: "Host has not responded for 2 minutes."
+
+  # -- Service Uptime ----------------------------------------------------------
+  - name: uptime
+    rules:
+
+      - alert: ServiceDown
+        expr: probe_success{job=~"blackbox.*"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service unreachable: {{ $labels.instance }}"
+          description: "{{ $labels.instance }} has not responded to HTTP for 2 minutes."
+
+      - alert: ServiceSlowResponse
+        expr: probe_duration_seconds{job=~"blackbox.*"} > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow response time: {{ $labels.instance }}"
+          description: "{{ $labels.instance }} is taking over 2 seconds to respond."
+
+  # -- Pi-hole -----------------------------------------------------------------
+  - name: pihole
+    rules:
+
+      # Suppressed automatically by Alertmanager when NodeDown fires
+      # for the same instance (see alertmanager.yml inhibit_rules)
+      - alert: PiholeDown
+        expr: up{job="pihole"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }}: Pi-hole unreachable"
+          description: "Pi-hole on {{ $labels.instance }} has not responded for 2 minutes."
+
+      - alert: PiholeHighBlockRate
+        expr: |
+          sum by(instance) (pihole_query_by_status{query_status=~"GRAVITY|GRAVITY_CNAME|REGEX|REGEX_CNAME|DENYLIST|DENYLIST_CNAME|EXTERNAL_BLOCKED_IP|EXTERNAL_BLOCKED_NULL|EXTERNAL_BLOCKED_NXRA"})
+          / sum by(instance) (pihole_query_by_status) * 100 > 50
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: Unusually high block rate"
+          description: "Pi-hole is blocking {{ printf \"%.1f\" $value }}% of all queries - possible DNS issue."

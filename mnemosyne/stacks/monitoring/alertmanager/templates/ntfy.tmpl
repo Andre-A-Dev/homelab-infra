@@ -1,0 +1,14 @@
+{{ define "ntfy.title" -}}
+{{ if eq .Status "resolved" -}}
+✅ Resolved: {{ (index .Alerts 0).Annotations.summary }}
+{{- else -}}
+{{ if eq (index .Alerts 0).Labels.severity "critical" }}🚨{{ else }}⚠️{{ end }} {{ (index .Alerts 0).Annotations.summary }}
+{{- end }}
+{{- end }}
+
+{{ define "ntfy.body" -}}
+{{ range .Alerts -}}
+{{ .Annotations.description }}
+{{ if eq .Status "resolved" }}Resolved at: {{ .EndsAt.Format "15:04:05" }}{{ else }}Firing since: {{ .StartsAt.Format "15:04:05" }}{{ end }}
+{{ end -}}
+{{- end }}

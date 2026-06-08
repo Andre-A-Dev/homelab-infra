@@ -1,0 +1,82 @@
+{
+	# Disable HTTP redirect – port 80 belongs to Pi-hole
+	auto_https disable_redirects
+}
+
+pihole.home {
+	tls internal
+	redir / /admin/ 301
+	reverse_proxy http://172.19.0.1:80
+}
+
+git.home {
+    tls internal
+    reverse_proxy https://git.home {
+        header_up Host git.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}
+
+homepage.home {
+    tls internal
+    reverse_proxy https://homepage.home {
+        header_up Host homepage.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}
+
+grafana.home {
+    tls internal
+    reverse_proxy https://grafana.home {
+        header_up Host grafana.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}
+
+prometheus.home {
+    tls internal
+    reverse_proxy https://prometheus.home {
+        header_up Host prometheus.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}
+
+ghostwrite.home {
+	tls internal
+	reverse_proxy https://ghostwrite.home {
+		header_up Host ghostwrite.home
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+ghostproxy.home {
+	tls internal
+	reverse_proxy https://ghostproxy.home {
+		header_up Host ghostproxy.home
+		transport http {
+			tls_insecure_skip_verify
+		}
+	}
+}
+
+immich.home {
+    tls internal
+
+    reverse_proxy https://100.x.x.x {
+        header_up Host immich.home
+        transport http {
+            tls_insecure_skip_verify
+        }
+    }
+}
+

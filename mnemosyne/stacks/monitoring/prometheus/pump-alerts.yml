@@ -1,0 +1,65 @@
+groups:
+  - name: pump
+    rules:
+
+      # Pump blocked — motor straining against obstruction
+      - alert: PumpBlocked
+        expr: |
+          shelly_power_watts{device="Pumpe-Keller"} > 350
+        for: 5m
+        labels:
+          severity: critical
+          device: pump
+        annotations:
+          summary: "Drainage pump blocked"
+          description: "Power draw {{ printf \"%.0f\" $value }}W > 350W for 5 min — pump may be blocked."
+
+      # Pump inactive — under 1W (standby ~0.66W) for 2 hours
+      - alert: PumpInactive
+        expr: |
+          shelly_power_watts{device="Pumpe-Keller"} < 1
+        for: 2h
+        labels:
+          severity: warning
+          device: pump
+        annotations:
+          summary: "Drainage pump inactive"
+          description: "Power draw below 1W for 2 hours — pump has not run. Check drainage."
+
+      # Plug unreachable — Shelly device offline
+      - alert: PumpPlugOffline
+        expr: |
+          shelly_device_online{device="Pumpe-Keller"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          device: pump
+        annotations:
+          summary: "Pump plug offline"
+          description: "Shelly Pumpe-Keller unreachable for 5 min — no pump monitoring possible."
+
+      # Daily consumption too high — pump running excessively
+      # Uses increase() over 24h — Shelly has no midnight-reset counter
+      - alert: PumpHighDailyConsumption
+        expr: |
+          increase(shelly_energy_total_kwh{device="Pumpe-Keller"}[24h]) > 0.750
+        for: 30m
+        labels:
+          severity: warning
+          device: pump
+        annotations:
+          summary: "Pump high daily consumption"
+          description: "Last 24h: {{ printf \"%.3f\" $value }} kWh > 0.750 kWh — pump running excessively."
+
+      # Daily consumption too low — pump has not run at all today after 20:00
+      - alert: PumpLowDailyConsumption
+        expr: |
+          max_over_time(shelly_power_watts{device="Pumpe-Keller"}[20h]) < 10
+          and on() hour() >= 20
+        for: 30m
+        labels:
+          severity: warning
+          device: pump
+        annotations:
+          summary: "Pump has not run today"
+          description: "Max power draw in last 20h was {{ printf \"%.1f\" $value }}W — pump may not have run today."

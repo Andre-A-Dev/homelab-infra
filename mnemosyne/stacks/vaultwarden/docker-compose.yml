@@ -1,0 +1,23 @@
+services:
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    environment:
+      - WEBSOCKET_ENABLED=true
+      - SIGNUPS_ALLOWED=false
+      - LOG_LEVEL=warn
+    volumes:
+      - /mnt/vault/vaultwarden/data:/data
+    networks:
+      - caddy_proxy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/alive"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s  # Vaultwarden starts fast, 10s is generous
+
+networks:
+  caddy_proxy:
+    external: true

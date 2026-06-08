@@ -1,0 +1,74 @@
+# win_diag.toml — machine-specific configuration for win_diag.py
+# Place this file next to win_diag.py, or pass --config PATH to use a custom location.
+# All sections and keys are optional — omit any key to keep the built-in default.
+# CLI flags always override values set here.
+
+
+# ─────────────────────────────────────────────
+#  Profile
+# ─────────────────────────────────────────────
+# Controls which fixes are enabled by default.
+#
+#   readonly  Diagnostics only — no fixes run at all
+#   safe      Default — all fixes except winsock_reset and dism_restore
+#   full      Everything including winsock_reset and dism_restore
+
+[profile]
+default = "full"
+
+
+# ─────────────────────────────────────────────
+#  Output paths
+# ─────────────────────────────────────────────
+# Uncomment and fill in to set persistent default paths.
+# CLI --log and --report always take precedence.
+
+[log]
+# path = "C:/Logs/win_diag/diag.log"
+
+[report]
+# path = "C:/Users/Andre/Desktop/win_diag_latest.html"
+
+
+# ─────────────────────────────────────────────
+#  Health scoring — benign filter
+# ─────────────────────────────────────────────
+# Event log entries matching these sources or IDs are excluded from the
+# overall health score. Add machine-specific false positives here.
+
+[scoring]
+benign_sources = [
+    "BTHUSB",                                        # Bluetooth auth failures (unpaired devices)
+    "Microsoft-Windows-DeviceAssociationService",    # Endpoint discovery noise
+]
+benign_event_ids = [
+    7009,   # Service connection timeout (Intel telemetry, energy monitors)
+    7034,   # Service terminated unexpectedly — add only if truly recurring/harmless
+]
+
+
+# ─────────────────────────────────────────────
+#  Fixes
+# ─────────────────────────────────────────────
+# skip: always disable these fix keys, regardless of profile.
+# Valid keys: sfc, dism_check, dism_restore, dns_flush,
+#             winsock_reset, services, clear_temp, disk_cleanup, windows_update
+
+[fixes]
+skip = []
+# skip = ["disk_cleanup"]    # Example: disable cleanmgr on SSD machines
+# skip = ["sfc", "dism_check"]  # Example: skip long-running checks on servers
+
+
+# ─────────────────────────────────────────────
+#  Services
+# ─────────────────────────────────────────────
+# extra:  additional service names to monitor (on top of the built-in 9)
+# ignore: service names to skip in health scoring and auto-start fixes,
+#         even if they show as stopped
+
+[services]
+extra  = []
+ignore = []
+# extra  = ["nginx", "postgresql"]   # Example: custom services to watch
+# ignore = ["Spooler"]               # Example: printer not used on this machine

@@ -1,0 +1,48 @@
+# -- Services -----------------------------------------------------------------------
+
+services:
+
+  # -- Gitea -------------------------------------------------------------------
+
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=sqlite3
+      - GITEA__database__PATH=/data/gitea/gitea.db
+      - GITEA__server__DOMAIN=git.home
+      - GITEA__server__ROOT_URL=https://git.home
+      - GITEA__server__SSH_DOMAIN=192.168.1.10
+      - GITEA__server__SSH_LISTEN_PORT=2222
+      - GITEA__server__SSH_PORT=2222
+      - GITEA__server__START_SSH_SERVER=true
+      - GITEA__service__DISABLE_REGISTRATION=true
+      - GITEA__service__REQUIRE_SIGNIN_VIEW=true
+      - GITEA__webhook__ALLOWED_HOST_LIST=host.docker.internal,172.17.0.1
+      - GITEA__metrics__ENABLED=true
+    volumes:
+      - /mnt/codex/gitea/data:/data
+    ports:
+      - "2222:2222"
+    networks:
+      - caddy_proxy
+      - monitoring_monitoring
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s  # Gitea loads SQLite DB and SSH server on startup
+
+# -- Networks ------------------------------------------------------------------------
+
+networks:
+  caddy_proxy:
+    external: true
+  monitoring_monitoring:
+    external: true

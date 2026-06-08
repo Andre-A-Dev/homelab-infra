@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Repo Audit — {{ repo_name }}</title>
+<style>
+  /* ── Fonts ──────────────────────────────────────────────────────────── */
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+  /* ── Variables ──────────────────────────────────────────────────────── */
+  :root {
+    --bg:        #0e0f11;
+    --bg2:       #161719;
+    --bg3:       #1d1f22;
+    --border:    #2a2c30;
+    --text:      #c8cad0;
+    --text-dim:  #5a5d66;
+    --text-hi:   #eaecf0;
+    --red:       #e05c5c;
+    --red-dim:   #3a1e1e;
+    --red-mid:   #7a2e2e;
+    --yellow:    #d4a843;
+    --yellow-dim:#2e2410;
+    --yellow-mid:#5a4010;
+    --green:     #4caf84;
+    --green-dim: #0e2820;
+    --blue:      #6b9fd4;
+    --mono:      'IBM Plex Mono', monospace;
+    --sans:      'IBM Plex Sans', sans-serif;
+  }
+
+  /* ── Reset ──────────────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+  }
+
+  /* ── Layout ─────────────────────────────────────────────────────────── */
+  .page { max-width: 960px; margin: 0 auto; padding: 48px 32px 80px; }
+
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  .header {
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 32px;
+    margin-bottom: 40px;
+  }
+  .header-top {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .header h1 {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text-hi);
+    letter-spacing: -0.5px;
+  }
+  .header h1 span { color: var(--text-dim); }
+  .header-meta {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .header-meta b { color: var(--text); font-weight: 400; }
+
+  /* ── Score bar ──────────────────────────────────────────────────────── */
+  .score-bar {
+    display: flex;
+    gap: 16px;
+    margin-top: 24px;
+    flex-wrap: wrap;
+  }
+  .score-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid;
+  }
+  .score-pill.fail { background: var(--red-dim);    border-color: var(--red-mid);    color: var(--red);    }
+  .score-pill.warn { background: var(--yellow-dim); border-color: var(--yellow-mid); color: var(--yellow); }
+  .score-pill.pass { background: var(--green-dim);  border-color: #1a4030;           color: var(--green);  }
+  .score-pill .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* ── Overall verdict ────────────────────────────────────────────────── */
+  .verdict {
+    margin: 0 0 40px;
+    padding: 18px 20px;
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    border-left: 3px solid;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .verdict.clean  { background: var(--green-dim);  border-color: var(--green);  color: var(--green);  }
+  .verdict.warned { background: var(--yellow-dim); border-color: var(--yellow); color: var(--yellow); }
+  .verdict.failed { background: var(--red-dim);    border-color: var(--red);    color: var(--red);    }
+  .verdict .icon  { font-size: 18px; flex-shrink: 0; }
+  .verdict .msg   { color: var(--text-hi); }
+  .verdict .msg b { color: inherit; }
+
+  /* ── Section cards ──────────────────────────────────────────────────── */
+  .sections { display: flex; flex-direction: column; gap: 12px; }
+
+  .section {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--bg2);
+  }
+  .section.has-fail  { border-color: var(--red-mid);    }
+  .section.has-warn  { border-color: #3a3010;            }
+  .section.all-pass  { border-color: var(--border);      }
+
+  /* Section header — clickable toggle */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    background: var(--bg3);
+    transition: background 0.15s;
+  }
+  .section-header:hover { background: #222428; }
+
+  .section-num {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-dim);
+    min-width: 24px;
+  }
+  .section-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-hi);
+    flex: 1;
+    font-weight: 500;
+  }
+  .section-status {
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 3px;
+    border: 1px solid;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+  .section-status.fail { color: var(--red);    background: var(--red-dim);    border-color: var(--red-mid);    }
+  .section-status.warn { color: var(--yellow); background: var(--yellow-dim); border-color: var(--yellow-mid); }
+  .section-status.pass { color: var(--green);  background: var(--green-dim);  border-color: #1a4030;           }
+  .section-status.skip { color: var(--text-dim); background: transparent;     border-color: var(--border);     }
+
+  .chevron {
+    color: var(--text-dim);
+    font-size: 11px;
+    transition: transform 0.2s;
+    flex-shrink: 0;
+  }
+  .section.open .chevron { transform: rotate(90deg); }
+
+  /* Section body */
+  .section-body {
+    display: none;
+    padding: 0 20px 16px;
+    border-top: 1px solid var(--border);
+  }
+  .section.open .section-body { display: block; }
+
+  /* Finding rows */
+  .finding {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    gap: 8px 12px;
+    align-items: start;
+  }
+  .finding:last-child { border-bottom: none; }
+
+  .finding-icon {
+    font-family: var(--mono);
+    font-size: 13px;
+    padding-top: 1px;
+  }
+  .finding-icon.fail { color: var(--red);    }
+  .finding-icon.warn { color: var(--yellow); }
+  .finding-icon.pass { color: var(--green);  }
+
+  .finding-check {
+    font-size: 13px;
+    color: var(--text-hi);
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .finding-detail {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 6px 10px;
+    margin: 6px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-height: 120px;
+    overflow-y: auto;
+  }
+  .finding-loc {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--blue);
+    margin-top: 4px;
+  }
+  .finding-hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    padding-left: 10px;
+    border-left: 2px solid var(--border);
+  }
+  .finding-hint::before { content: "→ "; color: var(--blue); }
+
+  /* Pass message in section body */
+  .pass-msg {
+    padding: 14px 0 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--green);
+    opacity: 0.8;
+  }
+  .pass-msg::before { content: "✓  "; }
+
+  /* Skipped message */
+  .skip-msg {
+    padding: 14px 0 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  /* ── Footer ─────────────────────────────────────────────────────────── */
+  .footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* ── Scrollbar ──────────────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-top">
+      <h1><span>audit /</span> {{ repo_name }}</h1>
+    </div>
+    <div class="header-meta">
+      <span>path <b>{{ repo_path }}</b></span>
+      <span>scanned <b>{{ timestamp }}</b></span>
+      <span>history <b>{{ "scanned" if history_scanned else "skipped" }}</b></span>
+    </div>
+    <div class="score-bar">
+      {% if total_fail > 0 %}
+      <div class="score-pill fail"><div class="dot"></div>{{ total_fail }} blocker{{ "s" if total_fail != 1 }}</div>
+      {% endif %}
+      {% if total_warn > 0 %}
+      <div class="score-pill warn"><div class="dot"></div>{{ total_warn }} warning{{ "s" if total_warn != 1 }}</div>
+      {% endif %}
+      {% if total_fail == 0 and total_warn == 0 %}
+      <div class="score-pill pass"><div class="dot"></div>clean</div>
+      {% endif %}
+    </div>
+  </header>
+
+  <!-- Verdict banner -->
+  {% if total_fail == 0 and total_warn == 0 %}
+  <div class="verdict clean">
+    <span class="icon">✓</span>
+    <span class="msg">All checks passed. <b>Repo looks clean for publication.</b></span>
+  </div>
+  {% elif total_fail == 0 %}
+  <div class="verdict warned">
+    <span class="icon">⚠</span>
+    <span class="msg"><b>{{ total_warn }} warning{{ "s" if total_warn != 1 }} to review.</b> No hard blockers — but read each warning before publishing.</span>
+  </div>
+  {% else %}
+  <div class="verdict failed">
+    <span class="icon">✗</span>
+    <span class="msg"><b>{{ total_fail }} blocker{{ "s" if total_fail != 1 }} found.</b> Fix all ✗ findings before publishing. Re-run until clean.</span>
+  </div>
+  {% endif %}
+
+  <!-- Sections -->
+  <div class="sections">
+    {% for section in sections %}
+    {% set has_fail = section.findings | selectattr("severity", "eq", "fail") | list | length > 0 %}
+    {% set has_warn = section.findings | selectattr("severity", "eq", "warn") | list | length > 0 %}
+    {% set is_skip  = section.skipped %}
+
+    <div class="section {{ 'has-fail' if has_fail else ('has-warn' if has_warn else 'all-pass') }} {{ 'open' if has_fail or has_warn }}">
+      <div class="section-header" onclick="toggle(this.parentElement)">
+        <span class="section-num">{{ "%02d" % loop.index }}</span>
+        <span class="section-title">{{ section.title }}</span>
+        {% if is_skip %}
+        <span class="section-status skip">skipped</span>
+        {% elif has_fail %}
+        <span class="section-status fail">
+          {{ section.findings | selectattr("severity", "eq", "fail") | list | length }} blocker{{ "s" if section.findings | selectattr("severity", "eq", "fail") | list | length != 1 }}
+        </span>
+        {% elif has_warn %}
+        <span class="section-status warn">
+          {{ section.findings | selectattr("severity", "eq", "warn") | list | length }} warning{{ "s" if section.findings | selectattr("severity", "eq", "warn") | list | length != 1 }}
+        </span>
+        {% else %}
+        <span class="section-status pass">pass</span>
+        {% endif %}
+        <span class="chevron">▶</span>
+      </div>
+
+      <div class="section-body">
+        {% if is_skip %}
+        <p class="skip-msg">{{ section.skip_reason }}</p>
+        {% elif not section.findings %}
+        <p class="pass-msg">No issues found.</p>
+        {% else %}
+        {% for f in section.findings %}
+        <div class="finding">
+          <span class="finding-icon {{ f.severity }}">{{ "✗" if f.severity == "fail" else "⚠" }}</span>
+          <div>
+            <div class="finding-check">{{ f.check }}</div>
+            {% if f.detail %}
+            <div class="finding-detail">{{ f.detail }}</div>
+            {% endif %}
+            {% if f.file %}
+            <div class="finding-loc">{{ f.file }}{% if f.line %}:{{ f.line }}{% endif %}</div>
+            {% endif %}
+            {% if f.remediation %}
+            <div class="finding-hint">{{ f.remediation }}</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span>audit_repo.py · homelab-infra</span>
+    <span>{{ timestamp }}</span>
+  </footer>
+
+</div>
+<script>
+  function toggle(el) {
+    el.classList.toggle('open');
+  }
+  // Auto-open sections with findings on load
+  document.querySelectorAll('.section.has-fail, .section.has-warn').forEach(s => {
+    s.classList.add('open');
+  });
+</script>
+</body>
+</html>

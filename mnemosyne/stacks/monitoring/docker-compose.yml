@@ -1,0 +1,276 @@
+---
+
+# -- Services -------------------------------------------------------------------
+
+services:
+
+  # -- Prometheus ---------------------------------------------------------------
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Resolves to host IP on Linux
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./prometheus/pump-alerts.yml:/etc/prometheus/pump-alerts.yml:ro
+      - /mnt/codex/prometheus:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+      - '--web.enable-admin-api'
+    networks:
+      - monitoring
+      - caddy_proxy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s  # Prometheus needs a moment to load TSDB on startup
+
+  # -- Alertmanager -------------------------------------------------------------
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml.tmpl:/etc/alertmanager/alertmanager.yml.tmpl:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
+      - /mnt/codex/alertmanager:/alertmanager
+    environment:
+      - NTFY_PUMP_CRITICAL=${NTFY_PUMP_CRITICAL}
+      - NTFY_PUMP_WARNING=${NTFY_PUMP_WARNING}
+      - NTFY_MNEMOSYNE_CRITICAL=${NTFY_MNEMOSYNE_CRITICAL}
+      - NTFY_MNEMOSYNE_WARNING=${NTFY_MNEMOSYNE_WARNING}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        sed \
+          -e "s|NTFY_PUMP_CRITICAL_TOPIC|${NTFY_PUMP_CRITICAL}|g" \
+          -e "s|NTFY_PUMP_WARNING_TOPIC|${NTFY_PUMP_WARNING}|g" \
+          -e "s|NTFY_MNEMOSYNE_CRITICAL_TOPIC|${NTFY_MNEMOSYNE_CRITICAL}|g" \
+          -e "s|NTFY_MNEMOSYNE_WARNING_TOPIC|${NTFY_MNEMOSYNE_WARNING}|g" \
+          /etc/alertmanager/alertmanager.yml.tmpl > /tmp/alertmanager.yml
+        exec /bin/alertmanager \
+          --config.file=/tmp/alertmanager.yml \
+          --storage.path=/alertmanager \
+          --web.external-url=http://alertmanager:9093
+    networks:
+      - monitoring
+      - caddy_proxy
+
+  # -- Nodeexporter --------------------------------------------------------------
+  # For Backup + Tailscale
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    hostname: Mnemosyne
+    restart: unless-stopped
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /var/lib/node_exporter/textfile_collector:/textfile_collector:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.textfile.directory=/textfile_collector"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    networks:
+      - monitoring
+
+  # -- Grafana -------------------------------------------------------------------
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      prometheus:
+        condition: service_healthy  # no point starting Grafana before Prometheus is ready
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=${GF_SERVER_ROOT_URL}
+      - GF_SERVER_DOMAIN=${GF_SERVER_DOMAIN}
+      - GF_PANELS_DISABLE_SANITIZE_HTML=true
+    volumes:
+      - /mnt/codex/grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - monitoring
+      - caddy_proxy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s  # Grafana plugin loading takes longer than Prometheus
+
+  # -- cAdvisor  ----------------------------------------------------------------
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # -- Nextcloud  -------------------------------------------------------------------
+
+  nextcloud-exporter:
+    image: xperimental/nextcloud-exporter:latest
+    container_name: nextcloud-exporter
+    environment:
+      - NEXTCLOUD_SERVER=${NEXTCLOUD_SERVER}
+      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME}
+      - NEXTCLOUD_PASSWORD=${NEXTCLOUD_PASSWORD}
+      - NEXTCLOUD_TLS_SKIP_VERIFY=true
+      - NEXTCLOUD_TIMEOUT=30s
+    networks:
+      - monitoring
+      - caddy_proxy
+    restart: unless-stopped
+
+  # -- Netatmo -------------------------------------------------------------------
+
+  netatmo-exporter:
+     image: ghcr.io/xperimental/netatmo-exporter:latest
+     container_name: netatmo-exporter
+     environment:
+       - NETATMO_CLIENT_ID=${NETATMO_CLIENT_ID}
+       - NETATMO_CLIENT_SECRET=${NETATMO_CLIENT_SECRET}
+       - NETATMO_EXPORTER_REFRESH_INTERVAL=8m
+     volumes:
+       - /mnt/codex/netatmo-exporter:/var/lib/netatmo-exporter
+     networks:
+       - monitoring
+     restart: unless-stopped
+
+  # -- Tado -----------------------------------------------------------------------
+
+  tado-exporter:
+    image: adventuresintech/tado-prometheus-exporter
+    container_name: tado-exporter
+    environment:
+      - TADO_TOKEN_PASSPHRASE=${TADO_TOKEN_PASSPHRASE}
+    volumes:
+      - /mnt/codex/tado-exporter:/home/exporter/.tado-exporter
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+  # -- Fritz!Box -------------------------------------------------------------------
+
+
+  fritz-exporter:
+    image: pdreker/fritz_exporter:latest
+    container_name: fritz-exporter
+    ports:
+      - "9787:9787"
+    environment:
+      - FRITZ_HOSTNAME=${FRITZ_HOSTNAME}
+      - FRITZ_USERNAME=${FRITZ_USERNAME}
+      - FRITZ_PASSWORD=${FRITZ_PASSWORD}
+      - FRITZ_LISTEN_ADDRESS=${FRITZ_LISTEN_ADDRESS}
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # -- Hue ------------------------------------------------------------------------
+
+  #hue-exporter:
+  #  image: mitchellrj/hue_exporter:latest
+  #  container_name: hue-exporter
+  #  volumes:
+  #    - ./hue_exporter/config.yml:/etc/hue_exporter/config.yml:ro
+  #  restart: unless-stopped
+  #  networks:
+  #    - monitoring
+
+
+  # -- Uptime-Checks (http) -------------------------------------------------------
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:latest
+    container_name: blackbox-exporter
+    restart: unless-stopped
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    networks:
+      - monitoring
+
+  # -- Meross smart plugs ---------------------------------------------------------
+
+  meross-exporter:
+    build: ./meross_exporter
+    container_name: meross-exporter
+    environment:
+      - MEROSS_EMAIL_1=${MEROSS_EMAIL_1}
+      - MEROSS_PASSWORD_1=${MEROSS_PASSWORD_1}
+      - MEROSS_ALIAS_1=${MEROSS_ALIAS_1}
+      - MEROSS_EMAIL_2=${MEROSS_EMAIL_2}
+      - MEROSS_PASSWORD_2=${MEROSS_PASSWORD_2}
+      - MEROSS_ALIAS_2=${MEROSS_ALIAS_2}
+      - MEROSS_DEVICE_NAMES=${MEROSS_DEVICE_NAMES}
+      - MEROSS_API_URL=${MEROSS_API_URL:-https://iotx-eu.meross.com}
+      - POLL_INTERVAL=${POLL_INTERVAL:-15}
+      - EXPORTER_PORT=${EXPORTER_PORT:-9114}
+      - RECONNECT_INTERVAL=${RECONNECT_INTERVAL:-60}
+    ports:
+      - "9114:9114"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9114/metrics | grep 'meross_device_online.*account=\"Home\"' | grep -qv '} 0'"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - monitoring
+
+  # -- Shelly Plugs ------------------------------------------------------------
+  shelly-exporter:
+    build: ./shelly_exporter
+    container_name: shelly-exporter
+    environment:
+      # Format: "display-name:ip:gen"  (gen=1 or gen=2)
+      - SHELLY_DEVICES=${SHELLY_DEVICES}
+      - POLL_INTERVAL=${POLL_INTERVAL_SHELLY:-15}
+      - EXPORTER_PORT=9117
+    ports:
+      - "9117:9117"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+# -- Networks -----------------------------------------------------------------------
+
+networks:
+  monitoring:
+    driver: bridge
+  caddy_proxy:
+    external: true

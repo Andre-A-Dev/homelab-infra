@@ -1,0 +1,171 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - "alerts.yml"
+  - "pump-alerts.yml"
+
+scrape_configs:
+
+  # -- Prometheus --------------------------------------------------------------
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # -- Node Exporter -----------------------------------------------------------
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+        labels:
+          hostname: "mnemosyne"
+      - targets: ["192.168.1.11:9100"]
+        labels:
+          hostname: "boreas"
+      - targets: ["192.168.1.13:9100"]
+        labels:
+          hostname: "hephaestus"
+      - targets: ["100.y.y.y:9100"]
+        labels:
+          hostname: "zephyros"
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
+
+  # -- cAdvisor ----------------------------------------------------------------
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+        labels:
+          hostname: "mnemosyne"
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
+
+  # -- Nextcloud ---------------------------------------------------------------
+  - job_name: "nextcloud"
+    static_configs:
+      - targets: ["nextcloud-exporter:9205"]
+        labels:
+          hostname: "mnemosyne"
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
+
+  # -- Netatmo -----------------------------------------------------------------
+  - job_name: "netatmo"
+    scrape_interval: 5m
+    static_configs:
+      - targets: ["netatmo-exporter:9210"]
+
+  # -- Tado --------------------------------------------------------------------
+  - job_name: "tado"
+    scrape_interval: 1m
+    static_configs:
+      - targets: ["tado-exporter:9100"]
+
+  # -- Pi-hole -----------------------------------------------------------------
+  - job_name: "pihole"
+    scrape_interval: 30s
+    scrape_timeout: 25s
+    static_configs:
+      - targets: ["192.168.1.11:9666"]
+        labels:
+          hostname: "boreas"
+      - targets: ["100.y.y.y:9666"]
+        labels:
+          hostname: "zephyros"
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
+
+  # -- Blackbox: external (Let's Encrypt) --------------------------------------
+  - job_name: "blackbox-external"
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - "https://cloud.yourdomain.dedyn.io"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # -- Blackbox: internal (Caddy internal CA) ----------------------------------
+  - job_name: "blackbox-internal"
+    metrics_path: /probe
+    params:
+      module: [http_2xx_insecure]
+    static_configs:
+      - targets:
+          - "https://vault.home"
+          - "https://git.home"
+          - "https://grafana.home"
+          - "https://prometheus.home"
+          - "https://calibre.home"
+          - "https://kosync.home"
+          - "https://syncthing.home"
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # -- Windows Exporter --------------------------------------------------------
+  - job_name: "windows"
+    static_configs:
+      - targets: ["192.168.1.x:9182"]
+        labels:
+          hostname: "Astraeus"
+      - targets: ["192.168.1.x:9182"]
+        labels:
+          hostname: "DESKTOP-6T07J1G"
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
+
+  # -- Fritz!Box ---------------------------------------------------------------
+  - job_name: "fritzbox"
+    static_configs:
+      - targets: ["fritz-exporter:9787"]
+        labels:
+          instance: "fritzbox"
+
+  # -- Gitea -------------------------------------------------------------------
+  - job_name: "gitea"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["gitea:3000"]
+
+  # -- Meross ------------------------------------------------------------------
+  - job_name: "meross"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["meross-exporter:9114"]
+        labels:
+          hostname: "mnemosyne"
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
+
+  # -- Shelly ------------------------------------------------------------------
+  - job_name: "shelly"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["shelly-exporter:9117"]
+        labels:
+          hostname: "mnemosyne"
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
