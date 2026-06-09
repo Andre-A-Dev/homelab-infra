@@ -125,13 +125,16 @@ jobs:
                                    "Remove and add to .gitignore"))
 
           # Emit GitHub Actions annotations
+          # Context (actual line content) is intentionally omitted from annotations
+          # to avoid leaking potential secret values in the public Actions UI.
+          # Run audit_repo.py locally for full details including context.
           for sev, label, file, line, context in findings:
               loc = f"file={file},line={line}" if line else f"file={file}"
-              print(f"::error {loc}::[SECRET SCANNER] {label} — {context}")
+              print(f"::error {loc}::[SECRET SCANNER] {label}")
 
           for sev, label, file, line, context in warnings:
               loc = f"file={file},line={line}" if line else f"file={file}"
-              print(f"::warning {loc}::[SECRET SCANNER] {label} — {context}")
+              print(f"::warning {loc}::[SECRET SCANNER] {label}")
 
           # Summary
           total_fail = len(findings)
