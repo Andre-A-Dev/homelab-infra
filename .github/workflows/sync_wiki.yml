@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - wiki/Home.md
+      - wiki/**.md
       - ARCHITECTURE.md
       - RUNBOOK.md
       - SERVICES.md
@@ -24,9 +24,9 @@ jobs:
         run: |
           git clone https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git wiki-repo
 
-      - name: Copy docs to wiki
+      - name: Copy all markdown files from wiki/ to wiki repo
         run: |
-          cp wiki/Home.md  wiki-repo/Home.md
+          cp wiki/*.md wiki-repo/
           cp ARCHITECTURE.md wiki-repo/Architecture.md
           cp RUNBOOK.md      wiki-repo/Runbook.md
           cp SERVICES.md     wiki-repo/Services.md
@@ -36,7 +36,7 @@ jobs:
           cd wiki-repo
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Home.md Architecture.md Runbook.md Services.md
+          git add .
           git diff --cached --quiet && echo "No changes — wiki already up to date" && exit 0
           git commit -m "sync: update from repo (${GITHUB_SHA::7})"
           git push
