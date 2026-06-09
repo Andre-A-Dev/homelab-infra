@@ -12,7 +12,7 @@ cd "$REPO" || exit 1
 git pull >> "$LOG" 2>&1
 
 # Find changed files between previous and current HEAD
-CHANGED=$(git diff --name-only HEAD@{1} HEAD 2>/dev/null)
+CHANGED=$(git diff --name-only 'HEAD@{1}' HEAD 2>/dev/null)
 echo "Changed files: $CHANGED" >> "$LOG"
 
 # Extract unique stack names from changed paths
