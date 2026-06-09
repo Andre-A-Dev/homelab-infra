@@ -30,6 +30,7 @@ jobs:
           cp ARCHITECTURE.md wiki-repo/Architecture.md
           cp RUNBOOK.md      wiki-repo/Runbook.md
           cp SERVICES.md     wiki-repo/Services.md
+          cp wiki/_Sidebar.md wiki-repo/_Sidebar.md
 
       - name: Commit and push wiki
         run: |
