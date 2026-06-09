@@ -1,0 +1,11 @@
+# .shellcheckrc — suppress style warnings that are intentional patterns in this codebase
+
+disable=SC2181  # if [ $? -eq 0 ] — intentional style
+disable=SC2155  # local var=$(cmd) — intentional, return value not needed
+disable=SC2015  # A && B || C — intentional pattern, not if-then-else
+disable=SC2002  # useless cat — readability preference
+disable=SC2012  # ls vs find — intentional for date-sorted output
+disable=SC2034  # unused variable — intentional in some cases
+disable=SC2059  # variable in printf format — intentional
+disable=SC2129  # individual redirects — readability preference
+disable=SC1091  # not following sourced .env — file only exists at runtime
