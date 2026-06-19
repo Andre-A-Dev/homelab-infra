@@ -176,7 +176,3 @@ Full API reference: `BA_Jobsuche_API_v6.md`
 
 Add `/mnt/vault/jobiris/` to `backup-services.sh` to preserve job history
 and status assignments.
-
----
-
-*Created with Claude · claude.ai*
