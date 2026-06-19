@@ -20,12 +20,13 @@ services:
       - GITEA__server__START_SSH_SERVER=true
       - GITEA__service__DISABLE_REGISTRATION=true
       - GITEA__service__REQUIRE_SIGNIN_VIEW=true
-      - GITEA__webhook__ALLOWED_HOST_LIST=host.docker.internal,172.17.0.1
+      - GITEA__webhook__ALLOWED_HOST_LIST=host.docker.internal,172.17.0.1,192.168.1.11,192.168.1.13,100.y.y.y
       - GITEA__metrics__ENABLED=true
     volumes:
       - /mnt/codex/gitea/data:/data
     ports:
-      - "2222:2222"
+      - "127.0.0.1:3000:3000"  # API access for webhook handler (localhost only)
+      - "0.0.0.0:2222:2222"    # Git SSH access from LAN clients
     networks:
       - caddy_proxy
       - monitoring_monitoring
