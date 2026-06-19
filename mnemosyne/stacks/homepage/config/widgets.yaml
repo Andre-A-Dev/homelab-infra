@@ -1,0 +1,24 @@
+- greeting:
+    text_size: xl
+    text: Mnemosyne
+
+- datetime:
+    text_size: l
+    format:
+      dateStyle: long
+      timeStyle: short
+      hour12: false
+
+- search:
+    provider: google
+    target: _blank
+    focus: true
+
+- openweathermap:
+    label: Nürnberg
+    latitude: 49.4521
+    longitude: 11.0767
+    units: metric
+    provider: openweathermap
+    apiKey: {{HOMEPAGE_VAR_OPENWEATHERMAP_API_KEY}}
+    cache: 5

@@ -1,0 +1,108 @@
+- Infrastructure:
+    - Pi-hole:
+        icon: pi-hole.png
+        href: http://192.168.1.11/admin
+        description: DNS filtering + Unbound
+        widget:
+          type: pihole
+          url: http://192.168.1.11
+          version: 6
+          key: {{HOMEPAGE_VAR_PIHOLE_API_KEY}}
+
+    - Vaultwarden:
+        icon: vaultwarden.png
+        href: https://vault.home
+        description: Password manager
+        ping: https://vault.home/alive
+
+    - Nextcloud:
+        icon: nextcloud.png
+        href: https://cloud.yourdomain.dedyn.io
+        description: Files
+        widget:
+          type: nextcloud
+          url: https://cloud.yourdomain.dedyn.io
+          username: {{HOMEPAGE_VAR_NC_ADMIN_USER}}
+          password: {{HOMEPAGE_VAR_NC_ADMIN_PASSWORD}}
+
+    - FritzBox:
+        icon: fritzbox.png
+        href: http://192.168.1.x
+        description: Router
+        widget:
+          type: fritzbox
+          url: http://192.168.1.x
+
+    - Gitea:
+        icon: gitea.png
+        href: https://git.home
+        description: Code & Homelab-Infra
+        widget:
+          type: gitea
+          url: https://git.home
+          key: {{HOMEPAGE_VAR_GITEA_TOKEN}}
+
+- Monitoring:
+    - Grafana:
+        icon: grafana.png
+        href: https://grafana.home
+        description: Dashboards
+        widget:
+          type: grafana
+          url: https://grafana.home
+          username: {{HOMEPAGE_VAR_GRAFANA_USER}}
+          password: {{HOMEPAGE_VAR_GRAFANA_PASSWORD}}
+
+    - Prometheus:
+        icon: prometheus.png
+        href: https://prometheus.home
+        description: Metrics
+
+- Calendar:
+    - Agenda:
+        icon: si-microsoftoutlook
+        href: https://outlook.live.com/calendar/view/month
+        description: Upcoming Events
+        widget:
+          type: calendar
+          firstDayInWeek: monday
+          view: agenda
+          maxEvents: 10
+          integrations:
+            - type: ical
+              url: https://outlook.live.com/owa/calendar/660687f8-690e-4e5a-9b4c-b6a84f3e9c8e/96b05430-7d3c-4c6b-beb0-c0a950a10f6f/cid-7ED428585F9A94A6/calendar.ics
+              name: Calendar
+              color: teal
+            - type: ical
+              url: https://outlook.live.com/owa/calendar/00000000-0000-0000-0000-000000000000/7040e159-15bb-414a-a0b3-c9b0e7f3d09e/cid-7ED428585F9A94A6/calendar.ics
+              name: Work
+              color: blue
+    - Monthly:
+        icon: si-microsoftoutlook
+        href: https://outlook.live.com/calendar/view/month
+        description: Outlook Calendar
+        widget:
+          type: calendar
+          firstDayInWeek: monday
+          view: monthly
+          maxEvents: 30
+          integrations:
+            - type: ical
+              url: https://outlook.live.com/owa/calendar/660687f8-690e-4e5a-9b4c-b6a84f3e9c8e/96b05430-7d3c-4c6b-beb0-c0a950a10f6f/cid-7ED428585F9A94A6/calendar.ics
+              name: Calendar
+              color: teal
+            - type: ical
+              url: https://outlook.live.com/owa/calendar/00000000-0000-0000-0000-000000000000/7040e159-15bb-414a-a0b3-c9b0e7f3d09e/cid-7ED428585F9A94A6/calendar.ics
+              name: Work
+              color: blue
+
+- Media & Files:
+    - Calibre-Web:
+        icon: calibre-web.png
+        href: https://calibre.home
+        description: E-Books
+
+    - Syncthing:
+        icon: syncthing.png
+        href: https://syncthing.home
+        description: File sync
