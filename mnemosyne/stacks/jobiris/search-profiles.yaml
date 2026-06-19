@@ -14,11 +14,11 @@ defaults:
 
 locations:
   daily_commute:
-    wo: "Eckental"
+    wo: "Your home location"   # placeholder, not used for API queries, only for distance calculation
     umkreis: 75             # Daily commute radius: Nürnberg, Erlangen, Fürth, Bamberg, Roth, Neumarkt
 
   hybrid_commute:
-    wo: "Eckental"
+    wo: "Your home location"   # placeholder, not used for API queries, only for distance calculation
     umkreis: 150            # Hybrid radius: Regensburg, Ingolstadt, Würzburg, Landshut, Amberg
 
   relocation_clusters:       # Relocation clusters - only relevant for high-fit roles
