@@ -135,3 +135,22 @@ immich.home {
 http://100.x.x.x:2283 {
   reverse_proxy immich-server:2283
 }
+
+# -- Jobiris --------------------------------------------------------------
+
+jobiris.home {
+  tls internal
+  reverse_proxy jobiris-board:8042 {
+    flush_interval -1
+    transport http {
+      versions 1.1
+    }
+  }
+}
+
+# -- Wakapi ---------------------------------------------------------------
+
+wakapi.home {
+    tls internal
+    reverse_proxy wakapi:3000
+}
