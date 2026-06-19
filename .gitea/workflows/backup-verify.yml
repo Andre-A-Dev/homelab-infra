@@ -1,0 +1,35 @@
+name: Verify backup
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # 04:00 — after backup (02:00) and offsite rclone (04:00)
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: mnemosyne
+
+    steps:
+      - name: Install tools
+        run: |
+          apk add --quiet --no-progress --no-check-certificate ca-certificates
+          update-ca-certificates
+          apk add --quiet --no-progress openssh-client
+
+      - name: Run verify-backup.sh on host via SSH
+        run: |
+          ssh -i "/data/id_ed25519" \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=10 \
+            youruser@192.168.1.10 \
+            "sudo /usr/local/bin/verify-backup.sh --quick"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          curl -s \
+            -H "Title: Backup verify failed" \
+            -H "Priority: high" \
+            -H "Tags: warning" \
+            -d "verify-backup.sh --quick failed. Check Gitea Actions for details." \
+            https://ntfy.sh/${NTFY_TOPIC}

@@ -1,0 +1,97 @@
+name: Check env drift
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  env-drift:
+    runs-on: mnemosyne
+
+    steps:
+      - name: Clone repository
+        env:
+          GIT_SSL_CAINFO: "/usr/local/share/ca-certificates/caddy-root.crt"
+        run: |
+          rm -rf /workspace/repo
+          git clone https://youruser:${GITEA_CLONE_TOKEN}@git.home/Auralis/homelab-infra.git /workspace/repo
+
+      - name: Install tools
+        run: |
+          apk add --quiet --no-progress --no-check-certificate ca-certificates
+          update-ca-certificates
+          apk add --quiet --no-progress python3
+
+      - name: Check env drift per stack
+        working-directory: /workspace/repo
+        run: |
+          python3 - << 'PYEOF'
+          import os, re, sys
+
+          stacks_root = "mnemosyne/stacks"
+          failed = []
+
+          for stack in sorted(os.listdir(stacks_root)):
+              stack_dir = os.path.join(stacks_root, stack)
+              compose = os.path.join(stack_dir, "docker-compose.yml")
+              example = os.path.join(stack_dir, ".env.example")
+
+              # Skip stacks without .env.example — they intentionally have no secrets
+              if not os.path.exists(example):
+                  continue
+
+              if not os.path.exists(compose):
+                  print(f"  WARN  {stack}: .env.example exists but no docker-compose.yml")
+                  continue
+
+              compose_text = open(compose).read()
+              example_text = open(example).read()
+
+              # Stacks using env_file: pass the entire .env to the container directly.
+              # In this case Docker reads vars at runtime — they won't appear as ${VAR}
+              # references in compose. Skip dead-key check to avoid false positives.
+              uses_env_file = "env_file" in compose_text
+
+              # Extract keys from .env.example (skip comments and empty lines)
+              example_keys = set()
+              for line in example_text.splitlines():
+                  line = line.strip()
+                  if not line or line.startswith("#"):
+                      continue
+                  key = line.split("=")[0].strip()
+                  if key:
+                      example_keys.add(key)
+
+              # Find all ${VAR} and $VAR references in docker-compose.yml
+              compose_refs = set(re.findall(r'\$\{?([A-Z_][A-Z0-9_]*)\}?', compose_text))
+
+              # Dead keys: in .env.example but not referenced in compose.
+              # Skipped for env_file stacks — vars are consumed by the container directly.
+              dead = (example_keys - compose_refs) if not uses_env_file else set()
+
+              # Missing keys: referenced in compose but not declared in .env.example.
+              # Always checked — a missing declaration is a documentation gap regardless.
+              missing = compose_refs - example_keys
+
+              # Filter false positives: single-letter vars and known Docker internals
+              noise = {"PWD", "HOME", "PATH", "USER", "SHELL", *[c for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]}
+              missing -= noise
+
+              if dead or missing:
+                  failed.append(stack)
+                  print(f"\n  FAIL  {stack}")
+                  for k in sorted(dead):
+                      print(f"          dead key (in .env.example, not in compose): {k}")
+                  for k in sorted(missing):
+                      print(f"          missing key (in compose, not in .env.example): {k}")
+              else:
+                  print(f"    OK  {stack}  ({len(example_keys)} keys)  {'[env_file]' if uses_env_file else ''}")
+
+          if failed:
+              print(f"\nDrift detected in: {', '.join(failed)}")
+              sys.exit(1)
+          else:
+              print(f"\nAll stacks clean.")
+          PYEOF

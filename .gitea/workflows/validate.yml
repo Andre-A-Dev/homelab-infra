@@ -1,0 +1,133 @@
+name: Validate configs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: mnemosyne
+
+    steps:
+      - name: Clone repository
+        env:
+          GIT_SSL_CAINFO: "/usr/local/share/ca-certificates/caddy-root.crt"
+        run: |
+          rm -rf /workspace/repo
+          git clone https://youruser:${GITEA_CLONE_TOKEN}@git.home/Auralis/Homelab_Infra.git /workspace/repo
+
+      - name: Install tools
+        run: |
+          apk add --quiet --no-progress --no-check-certificate ca-certificates
+          update-ca-certificates
+          apk add --quiet --no-progress jq shellcheck python3 py3-yaml curl
+
+      - name: Validate Docker Compose files
+        working-directory: /workspace/repo
+        run: |
+          FAILED=0
+          find mnemosyne/stacks -name "docker-compose.yml" | while read f; do
+            echo "Checking: $f"
+            python3 -c "
+          import yaml, sys
+          try:
+              yaml.safe_load(open('$f'))
+              print('  ✓ $f')
+          except yaml.YAMLError as e:
+              print(f'  ✗ $f: {e}')
+              sys.exit(1)
+          " || FAILED=1
+          done
+          [ "$FAILED" = "0" ] || exit 1
+
+      - name: Validate Prometheus alert rules
+        working-directory: /workspace/repo
+        run: |
+          FAILED=0
+          find mnemosyne/stacks/monitoring -name "*.yml" \
+            | xargs grep -l "^groups:" 2>/dev/null \
+            | while read f; do
+              echo "Checking: $f"
+              python3 -c "
+          import yaml, sys
+          try:
+              data = yaml.safe_load(open('$f'))
+              assert 'groups' in data, 'missing top-level groups key'
+              for g in data['groups']:
+                  assert 'name' in g, f'group missing name: {g}'
+                  assert 'rules' in g, f'group missing rules: {g}'
+              print('  ✓ $f')
+          except Exception as e:
+              print(f'  ✗ $f: {e}')
+              sys.exit(1)
+          " || FAILED=1
+          done
+          [ "$FAILED" = "0" ] || exit 1
+
+      - name: Validate Grafana dashboard JSON
+        working-directory: /workspace/repo
+        run: |
+          FAILED=0
+          find mnemosyne/stacks/monitoring/grafana/dashboards -name "*.json" \
+            2>/dev/null \
+            | while read f; do
+              echo "Checking: $f"
+              jq empty "$f" \
+                && echo "  ✓ $f" \
+                || { echo "  ✗ $f"; FAILED=1; }
+            done
+          [ "$FAILED" = "0" ] || exit 1
+
+      - name: Validate .env.example completeness
+        working-directory: /workspace/repo
+        run: |
+          FAILED=0
+          find mnemosyne/stacks -name "docker-compose.yml" | while read compose; do
+            stack_dir=$(dirname "$compose")
+            env_example="$stack_dir/.env.example"
+
+            [ -f "$env_example" ] || continue
+
+            # Extract ${VAR} and $VAR references via sed (no Perl regex needed)
+            vars=$(sed -nE 's/.*\$\{?([A-Z_][A-Z0-9_]*)\}?.*/\1/p' "$compose" | sort -u)
+
+            missing=""
+            for var in $vars; do
+              case "$var" in
+                PWD|HOME|USER|HOSTNAME|PATH|COMPOSE_PROJECT_NAME) continue ;;
+              esac
+              grep -q "^${var}=" "$env_example" || missing="$missing $var"
+            done
+
+            if [ -n "$missing" ]; then
+              echo "  ✗ $stack_dir — missing in .env.example:$missing"
+              FAILED=1
+            else
+              echo "  ✓ $stack_dir"
+            fi
+          done
+          [ "$FAILED" = "0" ] || exit 1
+
+      - name: Lint shell scripts
+        working-directory: /workspace/repo
+        run: |
+          FAILED=0
+          find mnemosyne/scripts -name "*.sh" | while read f; do
+            echo "Checking: $f"
+            shellcheck "$f" \
+              && echo "  ✓ $f" \
+              || { echo "  ✗ $f"; FAILED=1; }
+          done
+          [ "$FAILED" = "0" ] || exit 1
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          curl -s \
+            -H "Title: ❌ Validation failed" \
+            -H "Priority: high" \
+            -H "Tags: warning" \
+            -d "Branch: ${GITHUB_REF_NAME} — Commit: ${GITHUB_SHA:0:7}" \
+            https://ntfy.sh/Mnemosyne-Validate-<topic>
