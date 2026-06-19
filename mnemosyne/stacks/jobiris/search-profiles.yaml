@@ -1,0 +1,79 @@
+# Job search profiles for job-monitor.py
+# Source API: rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs
+#
+# "terms" entries reference groups defined under search_terms.
+# "location" entries reference single locations or lists of locations
+# defined under locations.
+
+defaults:
+  angebotsart: 1            # 1 = Arbeit (regular job offer)
+  # arbeitszeit intentionally omitted: "ho" (Home Office) filter returns 0
+  # results for most IT/embedded postings even when homeofficemoeglich=true,
+  # because employers don't tag it consistently. The homeofficemoeglich field
+  # in the response is evaluated instead.
+
+locations:
+  daily_commute:
+    wo: "Eckental"
+    umkreis: 75             # Daily commute radius: Nürnberg, Erlangen, Fürth, Bamberg, Roth, Neumarkt
+
+  hybrid_commute:
+    wo: "Eckental"
+    umkreis: 150            # Hybrid radius: Regensburg, Ingolstadt, Würzburg, Landshut, Amberg
+
+  relocation_clusters:       # Relocation clusters - only relevant for high-fit roles
+    - { wo: "München", umkreis: 30 }
+    - { wo: "Stuttgart", umkreis: 40 }   # covers Sindelfingen, Böblingen
+    - { wo: "Ulm", umkreis: 40 }          # covers Friedrichshafen
+    - { wo: "Karlsruhe", umkreis: 30 }
+
+search_terms:
+  tier1:                      # Direct match - core daily work
+    - "Build Engineer"
+    - "Build Release Engineer"
+    - "Software Build Manager"
+    - "CI/CD Engineer Embedded"
+    - "Build Automation Engineer"
+    - "Continuous Integration Engineer"
+    - "Build Test Infrastructure Engineer"
+    - "Build Integration Engineer"        # EN variant, no direct DE equivalent
+
+  tier2:                      # Likely fit, content needs checking
+    - "DevOps Engineer Embedded"
+    - "Toolchain Engineer"
+    - "Software Infrastructure Engineer"
+    - "Release Engineer"
+    - "Toolentwickler Build Automatisierung"
+
+  tier3:                      # High review effort, manual filtering required
+    - "Software Configuration Management Engineer"
+    - "DevOps Engineer"                    # generic - high noise expected
+
+profiles:
+  - name: "core_daily_commute"
+    terms: [tier1, tier2]
+    location: daily_commute
+    schedule: daily
+    veroeffentlichtseit: 1                 # only jobs posted since yesterday
+    tag: "Commutable"
+
+  - name: "hybrid_radius"
+    terms: [tier1]
+    location: hybrid_commute
+    schedule: daily
+    veroeffentlichtseit: 1
+    tag: "Hybrid - check office days"
+
+  - name: "generic_terms_review"
+    terms: [tier3]
+    location: daily_commute
+    schedule: daily
+    veroeffentlichtseit: 1
+    tag: "Generic - high review effort"
+
+  - name: "relocation_clusters"
+    terms: [tier1]
+    location: relocation_clusters
+    schedule: weekly                       # Monday morning, lower urgency
+    veroeffentlichtseit: 7
+    tag: "Relocation cluster - only if fit >= 7/10"

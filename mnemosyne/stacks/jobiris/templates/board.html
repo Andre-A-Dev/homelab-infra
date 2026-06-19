@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobIris Board</title>
+  <style>
+    /* ------------------------------------------------------------------ */
+    /* Tokens – light mode                                                  */
+    /* ------------------------------------------------------------------ */
+    :root {
+      --bg:           #f7f7f9;
+      --bg-card:      #ffffff;
+      --fg:           #1f1f23;
+      --muted:        #6b6b76;
+      --border:       #e0e0e6;
+      --accent:       #5b4b8a;
+      --accent-dim:   #efe9fb;
+      --new-bg:       #f0eaff;
+      --shadow:       0 1px 3px rgba(0,0,0,0.08);
+
+      --metric-total-bg:   #f0eaff;
+      --metric-total-fg:   #5b4b8a;
+      --metric-today-bg:   #e6f4ea;
+      --metric-today-fg:   #2a7a4f;
+      --metric-int-bg:     #e8f3fc;
+      --metric-int-fg:     #1d6fae;
+      --metric-bew-bg:     #fff8e1;
+      --metric-bew-fg:     #b07800;
+      --metric-sal-bg:     #fce8f3;
+      --metric-sal-fg:     #8b1a5a;
+      --metric-ho-bg:      #e8faf0;
+      --metric-ho-fg:      #1a7a50;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Tokens – dark mode                                                   */
+    /* ------------------------------------------------------------------ */
+    [data-theme="dark"] {
+      --bg:           #16161e;
+      --bg-card:      #1e1e2a;
+      --fg:           #d8d8e8;
+      --muted:        #888898;
+      --border:       #2e2e3e;
+      --accent:       #9d85d4;
+      --accent-dim:   #2a2040;
+      --new-bg:       #23183a;
+      --shadow:       0 1px 3px rgba(0,0,0,0.4);
+
+      --metric-total-bg:   #2a2040;
+      --metric-total-fg:   #c4aff0;
+      --metric-today-bg:   #1a2e20;
+      --metric-today-fg:   #6ecf94;
+      --metric-int-bg:     #162030;
+      --metric-int-fg:     #7ab8e8;
+      --metric-bew-bg:     #2a2010;
+      --metric-bew-fg:     #f0c060;
+      --metric-sal-bg:     #2a1020;
+      --metric-sal-fg:     #e898c8;
+      --metric-ho-bg:      #102a18;
+      --metric-ho-fg:      #60d898;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Base                                                                 */
+    /* ------------------------------------------------------------------ */
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      margin: 0;
+      padding: 1rem;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    a { color: var(--accent); }
+
+    /* ------------------------------------------------------------------ */
+    /* Header                                                               */
+    /* ------------------------------------------------------------------ */
+    .header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    h1 { font-size: 1.4rem; margin: 0; }
+
+    .theme-toggle {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.25rem 0.7rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: var(--muted);
+      transition: background 0.2s, border-color 0.2s;
+      white-space: nowrap;
+    }
+    .theme-toggle:hover { color: var(--fg); border-color: var(--accent); }
+
+    /* ------------------------------------------------------------------ */
+    /* Meta line                                                            */
+    /* ------------------------------------------------------------------ */
+    .meta {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-bottom: 0.8rem;
+    }
+    .meta a { color: var(--accent); text-decoration: none; }
+    .meta a:hover { text-decoration: underline; }
+
+    /* ------------------------------------------------------------------ */
+    /* Metrics bar                                                          */
+    /* ------------------------------------------------------------------ */
+    .metrics {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    .metric {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 0.5rem 0.9rem;
+      border-radius: 8px;
+      text-decoration: none;
+      transition: opacity 0.15s, transform 0.1s;
+      min-width: 70px;
+      cursor: pointer;
+    }
+    .metric:hover  { opacity: 0.85; transform: translateY(-1px); }
+    .metric.active { outline: 2px solid var(--accent); }
+
+    .metric-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .metric-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-top: 0.15rem;
+    }
+
+    .m-total  { background: var(--metric-total-bg); color: var(--metric-total-fg); }
+    .m-today  { background: var(--metric-today-bg); color: var(--metric-today-fg); }
+    .m-int    { background: var(--metric-int-bg);   color: var(--metric-int-fg);   }
+    .m-bew    { background: var(--metric-bew-bg);   color: var(--metric-bew-fg);   }
+    .m-sal    { background: var(--metric-sal-bg);   color: var(--metric-sal-fg);   }
+    .m-ho     { background: var(--metric-ho-bg);    color: var(--metric-ho-fg);    }
+
+    /* ------------------------------------------------------------------ */
+    /* Run controls                                                         */
+    /* ------------------------------------------------------------------ */
+    .run-controls {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+      padding: 0.6rem 0.8rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: var(--shadow);
+    }
+    .run-controls label {
+      font-size: 0.85rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .btn {
+      padding: 0.35rem 0.8rem;
+      border-radius: 4px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-daily  { background: var(--accent); color: #fff; }
+    .btn-weekly { background: #3d7ab5;       color: #fff; }
+
+    /* ------------------------------------------------------------------ */
+    /* Table                                                                */
+    /* ------------------------------------------------------------------ */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg-card);
+      box-shadow: var(--shadow);
+      font-size: 0.88rem;
+    }
+
+    th, td {
+      padding: 0.5rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th { background: var(--bg-card); }
+    th a { color: var(--fg); text-decoration: none; }
+    th a:hover { color: var(--accent); }
+    th a.sort-active { color: var(--accent); font-weight: 700; }
+
+    tr.new-row { background: var(--new-bg); }
+    tr:hover td { background: var(--accent-dim); }
+    tr.new-row:hover td { background: var(--new-bg); filter: brightness(0.97); }
+
+    td.title a { color: var(--accent); text-decoration: none; font-weight: 600; }
+    td.title a:hover { text-decoration: underline; }
+
+    select.status {
+      padding: 0.2rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+      color: var(--fg);
+      font-size: 0.85rem;
+    }
+
+    .status-Neu         { color: #5b4b8a; font-weight: 600; }
+    .status-Interessant { color: #2a7a4f; font-weight: 600; }
+    .status-Beworben    { color: #b07800; font-weight: 600; }
+    .status-Abgelehnt   { color: var(--muted); }
+
+    /* ------------------------------------------------------------------ */
+    /* Active status filter banner                                          */
+    /* ------------------------------------------------------------------ */
+    .filter-banner {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.6rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .filter-banner a { color: var(--accent); }
+
+    /* ------------------------------------------------------------------ */
+    /* Mobile                                                               */
+    /* ------------------------------------------------------------------ */
+    @media (max-width: 700px) {
+      table, thead, tbody, th, td, tr { display: block; }
+      thead tr { display: none; }
+      tr {
+        margin-bottom: 0.8rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.4rem;
+        background: var(--bg-card);
+      }
+      td { border: none; padding: 0.2rem 0.4rem; }
+      td::before {
+        content: attr(data-label) ": ";
+        font-weight: 600;
+        color: var(--muted);
+      }
+      .metrics { gap: 0.4rem; }
+      .metric  { min-width: 60px; padding: 0.4rem 0.6rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🔍 JobIris Board</h1>
+    <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+
+  <!-- Meta line -->
+  <div class="meta">
+    {{ rows|length }} {{ 'Eintrag' if rows|length == 1 else 'Einträge' }}
+    {% if status_filter %}
+      – gefiltert: <strong>{{ status_filter }}</strong>
+    {% elif not show_all %}
+      (Abgelehnt ausgeblendet &mdash;
+      <a href="?sort={{ sort_key }}&dir={{ direction }}&all=1">alle anzeigen</a>)
+    {% else %}
+      &mdash; <a href="?sort={{ sort_key }}&dir={{ direction }}">Abgelehnt ausblenden</a>
+    {% endif %}
+  </div>
+
+  <!-- Metrics bar -->
+  <div class="metrics">
+    <a class="metric m-total {% if not status_filter and not show_all %}active{% endif %}"
+       href="?sort={{ sort_key }}&dir={{ direction }}"
+       title="Alle Treffer (ohne Abgelehnt)">
+      <span class="metric-value">{{ metrics.total }}</span>
+      <span class="metric-label">Gesamt</span>
+    </a>
+    <a class="metric m-today"
+       href="?sort=date&dir=desc"
+       title="Heute neu gefunden">
+      <span class="metric-value">{{ metrics.today }}</span>
+      <span class="metric-label">Heute</span>
+    </a>
+    <a class="metric m-int {% if status_filter == 'Interessant' %}active{% endif %}"
+       href="?sort={{ sort_key }}&dir={{ direction }}&status_filter=Interessant"
+       title="Als Interessant markiert">
+      <span class="metric-value">{{ metrics.interessant }}</span>
+      <span class="metric-label">Interessant</span>
+    </a>
+    <a class="metric m-bew {% if status_filter == 'Beworben' %}active{% endif %}"
+       href="?sort={{ sort_key }}&dir={{ direction }}&status_filter=Beworben"
+       title="Bewerbung verschickt">
+      <span class="metric-value">{{ metrics.beworben }}</span>
+      <span class="metric-label">Beworben</span>
+    </a>
+    <a class="metric m-sal"
+       href="?sort=salary&dir=desc"
+       title="Stellen mit Gehaltsangabe – klicken zum Sortieren">
+      <span class="metric-value">{{ metrics.with_salary }}</span>
+      <span class="metric-label">Mit Gehalt</span>
+    </a>
+    <a class="metric m-ho"
+       href="?sort={{ sort_key }}&dir={{ direction }}"
+       title="Stellen mit Home-Office-Angabe">
+      <span class="metric-value">{{ metrics.with_homeoffice }}</span>
+      <span class="metric-label">Home-Office</span>
+    </a>
+  </div>
+
+  <!-- Run controls -->
+  <div class="run-controls">
+    <form method="post" action="{{ url_for('start_run') }}" style="display:contents">
+      <button class="btn btn-daily"  name="schedule" value="daily">▶ Run daily</button>
+      <button class="btn btn-weekly" name="schedule" value="weekly">▶ Run weekly</button>
+      <label><input type="checkbox" name="dry_run" value="1"> Dry run</label>
+    </form>
+  </div>
+
+  <!-- Job table -->
+  <table>
+    <thead>
+      <tr>
+        {% for key, label in [
+            ('date',     'Datum'),
+            ('title',    'Titel'),
+            ('company',  'Arbeitgeber'),
+            ('location', 'Ort'),
+            ('distance', 'Entfernung'),
+            ('salary',   'Gehalt'),
+        ] %}
+        <th>
+          <a href="?sort={{ key }}&dir={{ toggle_dir(key) }}{{ '&all=1' if show_all else '' }}{{ '&status_filter=' ~ status_filter if status_filter else '' }}"
+             class="{{ 'sort-active' if sort_key == key else '' }}">
+            {{ label }}{{ ' ↑' if sort_key == key and direction == 'asc' else (' ↓' if sort_key == key else '') }}
+          </a>
+        </th>
+        {% endfor %}
+        <th>Home-Office</th>
+        {% for key, label in [('tag', 'Tag'), ('status', 'Status')] %}
+        <th>
+          <a href="?sort={{ key }}&dir={{ toggle_dir(key) }}{{ '&all=1' if show_all else '' }}{{ '&status_filter=' ~ status_filter if status_filter else '' }}"
+             class="{{ 'sort-active' if sort_key == key else '' }}">
+            {{ label }}{{ ' ↑' if sort_key == key and direction == 'asc' else (' ↓' if sort_key == key else '') }}
+          </a>
+        </th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr class="{{ 'new-row' if row['first_seen'][:10] == latest_date else '' }}">
+        <td data-label="Datum">{{ row['first_seen'][:10] }}</td>
+        <td data-label="Titel" class="title">
+          <a href="{{ row['url'] }}" target="_blank" rel="noopener">{{ row['titel'] }}</a>
+        </td>
+        <td data-label="Arbeitgeber">{{ row['arbeitgeber'] }}</td>
+        <td data-label="Ort">{{ row['ort'] }}</td>
+        <td data-label="Entfernung">{{ row['distance'] or '' }}</td>
+        <td data-label="Gehalt">{{ row['salary'] or '' }}</td>
+        <td data-label="Home-Office">{{ row['home_office'] or '' }}</td>
+        <td data-label="Tag">{{ row['tag'] or '' }}</td>
+        <td data-label="Status">
+          <form method="post" action="{{ url_for('update_status', refnr=row['refnr']) }}">
+            <input type="hidden" name="sort" value="{{ sort_key }}">
+            <input type="hidden" name="dir"  value="{{ direction }}">
+            <input type="hidden" name="all"  value="{{ '1' if show_all else '0' }}">
+            <select name="status"
+                    class="status status-{{ row['status'] }}"
+                    onchange="this.form.submit()">
+              {% for option in status_options %}
+              <option value="{{ option }}" {{ 'selected' if option == row['status'] else '' }}>
+                {{ option }}
+              </option>
+              {% endfor %}
+            </select>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <script>
+    // ------------------------------------------------------------------ //
+    // Dark mode                                                            //
+    // ------------------------------------------------------------------ //
+    const html = document.documentElement;
+    const btn  = document.getElementById('theme-btn');
+
+    function applyTheme(theme) {
+      html.setAttribute('data-theme', theme);
+      btn.textContent = theme === 'dark' ? '☀️ Light' : '🌙 Dark';
+      localStorage.setItem('jobiris-theme', theme);
+    }
+
+    function toggleTheme() {
+      applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    }
+
+    // On load: stored preference → system preference → light
+    (function () {
+      const stored = localStorage.getItem('jobiris-theme');
+      if (stored) {
+        applyTheme(stored);
+      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        applyTheme('dark');
+      }
+    })();
+  </script>
+</body>
+</html>

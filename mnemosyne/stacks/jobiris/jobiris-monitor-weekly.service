@@ -1,0 +1,11 @@
+[Unit]
+Description=JobIris job search monitor (weekly profiles - relocation clusters, via Docker)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=youruser
+WorkingDirectory=/home/youruser/homelab-infra/mnemosyne/stacks/jobiris
+ExecStart=/usr/bin/docker compose run --rm jobiris-monitor python3 job-monitor.py --schedule weekly

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobIris – Run Output</title>
+  <style>
+    :root {
+      --bg:      #f7f7f9;
+      --fg:      #1f1f23;
+      --muted:   #6b6b76;
+      --border:  #e0e0e6;
+      --accent:  #5b4b8a;
+      --bg-card: #ffffff;
+    }
+    [data-theme="dark"] {
+      --bg:      #16161e;
+      --fg:      #d8d8e8;
+      --muted:   #888898;
+      --border:  #2e2e3e;
+      --accent:  #9d85d4;
+      --bg-card: #1e1e2a;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      margin: 0;
+      padding: 1rem;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    .header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 0.8rem;
+    }
+
+    h1 { font-size: 1.4rem; margin: 0; }
+
+    .theme-toggle {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.25rem 0.7rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: var(--muted);
+    }
+    .theme-toggle:hover { color: var(--fg); border-color: var(--accent); }
+
+    #run-status {
+      margin: 0.5rem 0 0.8rem;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    #log {
+      background: #0d0d1a;
+      color: #c8d3f0;
+      font-family: ui-monospace, 'Cascadia Code', monospace;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      padding: 1rem;
+      border-radius: 6px;
+      min-height: 200px;
+      max-height: 72vh;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .back-link {
+      display: inline-block;
+      margin-top: 1rem;
+      color: var(--accent);
+      font-size: 0.9rem;
+      text-decoration: none;
+    }
+    .back-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>🔍 JobIris – Run Output</h1>
+    <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">🌙 Dark</button>
+  </div>
+
+  <div id="run-status">⏳ Running…</div>
+  <div id="log"></div>
+  <a class="back-link" href="/" id="back-link" style="display:none">← Back to board</a>
+
+  <script>
+    // Dark mode (same logic as board.html)
+    const html = document.documentElement;
+    const btn  = document.getElementById('theme-btn');
+
+    function applyTheme(theme) {
+      html.setAttribute('data-theme', theme);
+      btn.textContent = theme === 'dark' ? '☀️ Light' : '🌙 Dark';
+      localStorage.setItem('jobiris-theme', theme);
+    }
+
+    function toggleTheme() {
+      applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    }
+
+    (function () {
+      const stored = localStorage.getItem('jobiris-theme');
+      if (stored) {
+        applyTheme(stored);
+      } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        applyTheme('dark');
+      }
+    })();
+
+    // Polling
+    const logEl    = document.getElementById('log');
+    const statusEl = document.getElementById('run-status');
+    const backEl   = document.getElementById('back-link');
+    let lastCount  = 0;
+
+    function poll() {
+      fetch('/run/{{ run_id }}/status')
+        .then(r => r.json())
+        .then(data => {
+          if (data.lines.length > lastCount) {
+            logEl.textContent = data.lines.join('');
+            logEl.scrollTop   = logEl.scrollHeight;
+            lastCount = data.lines.length;
+          }
+          if (data.done) {
+            statusEl.textContent = data.rc === 0
+              ? '✅ Finished'
+              : `⚠️ Exited with code ${data.rc}`;
+            backEl.style.display = 'inline-block';
+          } else {
+            setTimeout(poll, 2000);
+          }
+        })
+        .catch(() => setTimeout(poll, 3000));
+    }
+
+    poll();
+  </script>
+</body>
+</html>
