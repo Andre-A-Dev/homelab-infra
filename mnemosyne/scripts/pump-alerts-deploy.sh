@@ -3,7 +3,7 @@
 # Validates rules with promtool before deploying — aborts on invalid YAML.
 
 GITEA_TOKEN=$(grep PUMP_GITEA_TOKEN /home/youruser/stacks/monitoring/.env | cut -d= -f2)
-REPO_URL="https://${GITEA_TOKEN}@git.home/${GITEA_USER}/pump_alerts "
+REPO_URL="https://youruser:${GITEA_TOKEN}@git.home/Auralis/pump_alerts"
 REPO_DIR="/tmp/pump-alerts-repo"
 OUTFILE="/home/youruser/stacks/monitoring/prometheus/pump-alerts.yml"
 TMPFILE="/tmp/pump-alerts-check.yml"
@@ -15,7 +15,7 @@ echo "=== pump-alerts deploy: $(date) ===" >> "$LOG"
 if [ -d "$REPO_DIR/.git" ]; then
     cd "$REPO_DIR" && GIT_SSL_NO_VERIFY=true git pull >> "$LOG" 2>&1
 else
-    GIT_SSL_NO_VERIFY=true git clone "https://${GITEA_TOKEN}@git.home/..." 2>/dev/null
+    GIT_SSL_NO_VERIFY=true git clone "$REPO_URL" "$REPO_DIR" >> "$LOG" 2>&1
 fi
 
 # Validate before deploying — copy to temp location inside Prometheus container

@@ -1,0 +1,6 @@
+[Unit]
+Description=Collect Pi 5 fan level and CPU temp for Prometheus
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/fan-metrics.sh
