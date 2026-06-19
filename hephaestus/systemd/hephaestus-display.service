@@ -1,0 +1,15 @@
+[Unit]
+Description=Hephaestus Framebuffer Status Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStartPre=/bin/sleep 15
+ExecStart=/usr/local/bin/hephaestus-display.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
