@@ -5,6 +5,7 @@ caddy.env
 **/*.key
 **/*.pem
 **/app.ini
+shared/webhook/hooks.json
 
 # Mail credentials
 **/msmtprc
@@ -16,6 +17,7 @@ caddy.env
 **/__pycache__/
 **/*.pyc
 .DS_Store
+node_modules/
 
 # JetBrains IDEs (PyCharm, IntelliJ, etc.)
 .idea/
