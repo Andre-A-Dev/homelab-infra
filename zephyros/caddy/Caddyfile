@@ -15,6 +15,7 @@ git.home {
         header_up Host git.home
         transport http {
             tls_insecure_skip_verify
+            versions 1.1
         }
     }
 }
@@ -25,6 +26,7 @@ homepage.home {
         header_up Host homepage.home
         transport http {
             tls_insecure_skip_verify
+            versions 1.1
         }
     }
 }
@@ -35,6 +37,7 @@ grafana.home {
         header_up Host grafana.home
         transport http {
             tls_insecure_skip_verify
+            versions 1.1
         }
     }
 }
@@ -45,6 +48,7 @@ prometheus.home {
         header_up Host prometheus.home
         transport http {
             tls_insecure_skip_verify
+            versions 1.1 
         }
     }
 }
@@ -55,6 +59,7 @@ ghostwrite.home {
 		header_up Host ghostwrite.home
 		transport http {
 			tls_insecure_skip_verify
+                        versions 1.1
 		}
 	}
 }
@@ -65,6 +70,7 @@ ghostproxy.home {
 		header_up Host ghostproxy.home
 		transport http {
 			tls_insecure_skip_verify
+                        versions 1.1
 		}
 	}
 }
