@@ -135,12 +135,37 @@ scrape_configs:
       - source_labels: [hostname]
         target_label: instance
 
-  # -- Fritz!Box ---------------------------------------------------------------
+  # -- Fritz!Box -------------------------------------------
   - job_name: "fritzbox"
+    scrape_interval: 60s
+    scrape_timeout: 30s
     static_configs:
       - targets: ["fritz-exporter:9787"]
         labels:
-          instance: "fritzbox"
+          instance: "fritzbox-home"
+          location: "home"
+      - targets: ["100.y.y.y:9787"]
+        labels:
+          instance: "fritzbox-fuchsbau"
+          location: "fuchsbau"
+
+  # -- FritzBox DECT + system metrics (sberk42/fritzbox_exporter) -----------
+  # Separate exporter from the main "fritzbox" job (pdreker/fritz_exporter).
+  # Provides gateway_dect_active (per-handset DECT registration status) plus
+  # CPU load / temperature via Lua APIs.
+  - job_name: "fritzbox-lua"
+    scrape_interval: 60s
+    static_configs:
+      - targets: ["100.y.y.y:9042"]
+        labels:
+          instance: "fritzbox-fuchsbau-lua"
+          location: "fuchsbau"
+      # Uncomment once deployed on Mnemosyne (same FritzBox as job "fritzbox"):
+      # - targets: ["fritz-exporter-lua:9042"]
+      #   labels:
+      #     instance: "fritzbox-home-lua"
+      #     location: "home"
+
 
   # -- Gitea -------------------------------------------------------------------
   - job_name: "gitea"
@@ -169,3 +194,14 @@ scrape_configs:
     relabel_configs:
       - source_labels: [hostname]
         target_label: instance
+
+  # -- Wakapi ------------------------------------------------------------------
+  - job_name: 'wakapi'
+    static_configs:
+      - targets: ['wakapi:3000']
+        labels:
+          instance: 'mnemosyne'
+    metrics_path: '/api/metrics'
+    # Wakapi requires an API key for the metrics endpoint
+    params:
+      api_key: ['${WAKAPI_METRICS_API_KEY}']
