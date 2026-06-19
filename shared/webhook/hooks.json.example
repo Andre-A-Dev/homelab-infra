@@ -1,0 +1,34 @@
+[
+  {
+    "id": "gitea-pull",
+    "execute-command": "/home/youruser/homelab-infra/shared/scripts/gitea-webhook-handler.sh",
+    "command-working-directory": "/home/youruser/homelab-infra",
+    "response-message": "Webhook received",
+    "trigger-rule": {
+      "match": {
+        "type": "payload-hmac-sha256",
+        "secret": "WEBHOOK_HMAC_SECRET",
+        "parameter": {
+          "source": "header",
+          "name": "X-Gitea-Signature"
+        }
+      }
+    }
+  },
+  {
+    "id": "pump-alerts-deploy",
+    "execute-command": "/home/youruser/homelab-infra/mnemosyne/scripts/pump-alerts-deploy.sh",
+    "command-working-directory": "/home/youruser",
+    "response-message": "pump-alerts deploy triggered",
+    "trigger-rule": {
+      "match": {
+        "type": "payload-hmac-sha256",
+        "secret": "PUMP_ALERTS_SECRET",
+        "parameter": {
+          "source": "header",
+          "name": "X-Gitea-Signature"
+        }
+      }
+    }
+  }
+]
