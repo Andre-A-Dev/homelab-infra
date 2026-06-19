@@ -1,0 +1,16 @@
+services:
+  wakapi:
+    image: n1try/wakapi:latest
+    container_name: wakapi
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /mnt/codex/wakapi:/data
+    networks:
+      - caddy_proxy
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+
+networks:
+  caddy_proxy:
+    external: true
