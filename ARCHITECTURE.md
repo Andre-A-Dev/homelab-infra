@@ -172,6 +172,8 @@ home FritzBox"]
         NC_Exp["Nextcloud Exporter :9205"]
         cAdvisor["cAdvisor :8080"]
         Shelly["Shelly Exporter :9117"]
+        Meross["Meross Exporter :9114"]
+        Midea["Midea Exporter :9116"]
         Wakapi["Wakapi :3000
 /api/metrics"]
         Gitea_Exp["Gitea Exporter"]
@@ -197,14 +199,19 @@ DECT + system metrics"]
 (viessmann)"]
     end
 
-    Prometheus --> NE_M & Blackbox & Netatmo & Fritz_H & Tado & NC_Exp & cAdvisor & Shelly & Wakapi & Gitea_Exp
+    subgraph astraeus["Astraeus + desktop (via LAN)"]
+        Windows_E["windows_exporter :9182"]
+    end
+
+    Prometheus --> NE_M & Blackbox & Netatmo & Fritz_H & Tado & NC_Exp & cAdvisor & Shelly & Meross & Midea & Wakapi & Gitea_Exp
     Prometheus --> NE_B & PH_B
     Prometheus --> NE_Z & PH_Z & Fritz_P & Fritz_Lua
     Prometheus --> NE_H
+    Prometheus --> Windows_E
     Prometheus -. "alerts" .-> Alertmanager
 
     Grafana["Grafana
-Mnemosyne :3001"] --> Prometheus
+Mnemosyne :3000"] --> Prometheus
 ```
 
 ---
