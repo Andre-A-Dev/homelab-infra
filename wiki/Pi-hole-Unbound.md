@@ -4,8 +4,6 @@ Network-wide DNS filtering and privacy via recursive resolution -- without sendi
 
 Pi-hole filters ads and tracking domains for all devices on the network. Unbound resolves DNS queries recursively by querying the authoritative nameservers directly, with no third-party intermediary.
 
-**Boreas is DNS-critical.** If it goes down, the entire network loses DNS resolution. Keep the emergency rollback procedure in mind before making changes.
-
 ---
 
 ## How it works
