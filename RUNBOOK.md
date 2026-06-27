@@ -66,11 +66,92 @@ sudo /usr/local/bin/backup-services.sh
 tail -50 /var/log/backup-services.log
 ```
 
-Verify a specific archive:
+Back up a single service (e.g. after a config change mid-week):
 
 ```bash
-ls -lh /mnt/backup/<date>/
-tar -tzf /mnt/backup/<date>/<archive>.tar.gz | head
+sudo /usr/local/bin/backup-services.sh --only=vaultwarden
+```
+
+Force all services regardless of change detection:
+
+```bash
+sudo /usr/local/bin/backup-services.sh --force --overwrite
+```
+
+---
+
+## Verify Backup
+
+Full integrity check (opens every archive, runs SQLite and MariaDB checks):
+
+```bash
+sudo /usr/local/bin/verify-backup.sh
+```
+
+Quick check — existence and size only, skips `tar -tzf` (faster, used by cron):
+
+```bash
+sudo /usr/local/bin/verify-backup.sh --quick
+```
+
+Verify a specific date instead of the latest:
+
+```bash
+sudo /usr/local/bin/verify-backup.sh --date=2026-06-01
+```
+
+Check backup health via Prometheus metrics (non-zero = problem):
+
+```bash
+cat /var/lib/node_exporter/textfile_collector/backup.prom | grep -v "^#"
+cat /var/lib/node_exporter/textfile_collector/backup_verify.prom | grep -v "^#"
+```
+
+---
+
+## Restore from Backup
+
+> Requires the WD My Passport to be mounted at `/mnt/backup`. Check with
+> `mountpoint -q /mnt/backup && echo mounted || echo NOT MOUNTED`.
+
+Interactive restore — presents a snapshot selector and per-service toggle menu.
+No data is touched until you type `yes`:
+
+```bash
+sudo /usr/local/bin/restore-services.sh
+```
+
+Notable per-service behavior:
+
+- **Nextcloud** — DB container stays up for the SQL import; only the app
+  container is stopped. Maintenance mode is toggled around the restore.
+- **Calibre** — `calibre-web` is stopped during library restore to avoid
+  read/write conflicts.
+- **Stack configs** — extracted via the `~/stacks/` symlink, which overwrites
+  the homelab-infra working tree.
+- **Skipped snapshots** — if a service has no archive on the selected date, the
+  script follows the `.SKIPPED` marker to the last real archive automatically.
+
+### Restore a single service
+
+At the service selection menu, toggle only the service you need — press its
+number, then Enter to confirm.
+
+### After a Nextcloud restore
+
+Run a file scan to sync the DB with the restored data:
+
+```bash
+docker exec -u www-data nextcloud php occ files:scan --all
+docker exec -u www-data nextcloud php occ maintenance:mode --off  # if still on
+```
+
+### After restoring stack configs
+
+The homelab-infra working tree has been overwritten. Restart affected stacks:
+
+```bash
+cd ~/stacks/<affected-stack> && docker compose up -d
 ```
 
 ---
