@@ -205,3 +205,14 @@ scrape_configs:
     # Wakapi requires an API key for the metrics endpoint
     params:
       api_key: ['${WAKAPI_METRICS_API_KEY}']
+
+  # -- Midea -------------------------------------------------------------------
+  - job_name: "midea"
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["midea-exporter:9116"]
+        labels:
+          hostname: "mnemosyne"
+    relabel_configs:
+      - source_labels: [hostname]
+        target_label: instance
