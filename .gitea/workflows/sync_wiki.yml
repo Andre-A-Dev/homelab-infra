@@ -1,0 +1,70 @@
+name: Sync docs to wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - wiki/**.md
+      - README.md
+      - ARCHITECTURE.md
+      - RUNBOOK.md
+      - SERVICES.md
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: mnemosyne
+
+    steps:
+      - name: Install CA certificate
+        run: |
+          apk add --quiet --no-progress --no-check-certificate ca-certificates
+          update-ca-certificates
+
+      - name: Clone repository
+        env:
+          GIT_SSL_CAINFO: /usr/local/share/ca-certificates/caddy-root.crt
+        run: |
+          rm -rf /workspace/repo
+          git clone https://youruser:${GITEA_CLONE_TOKEN}@git.home/Auralis/Homelab_Infra.git /workspace/repo
+
+      - name: Clone wiki
+        env:
+          GIT_SSL_CAINFO: /usr/local/share/ca-certificates/caddy-root.crt
+        run: |
+          rm -rf /workspace/wiki-repo
+          git clone https://youruser:${GITEA_CLONE_TOKEN}@git.home/Auralis/Homelab_Infra.wiki.git /workspace/wiki-repo
+
+      - name: Copy docs to wiki
+        run: |
+          cp /workspace/repo/wiki/*.md       /workspace/wiki-repo/
+          cp /workspace/repo/README.md       /workspace/wiki-repo/Readme.md
+          cp /workspace/repo/ARCHITECTURE.md /workspace/wiki-repo/Architecture.md
+          cp /workspace/repo/RUNBOOK.md      /workspace/wiki-repo/Runbook.md
+          cp /workspace/repo/SERVICES.md     /workspace/wiki-repo/Services.md
+
+      - name: Commit and push wiki
+        env:
+          GIT_SSL_CAINFO: /usr/local/share/ca-certificates/caddy-root.crt
+        run: |
+          if [ -z "${GITEA_WIKI_TOKEN}" ]; then
+            echo "ERROR: GITEA_WIKI_TOKEN is not set — add it to the runner .env and restart the runner"
+            exit 1
+          fi
+          cd /workspace/wiki-repo
+          git config user.name  "gitea-actions[bot]"
+          git config user.email "gitea-actions[bot]@noreply.git.home"
+          git add .
+          git diff --cached --quiet && echo "No changes — wiki already up to date" && exit 0
+          git commit -m "sync: update from repo (${GITHUB_SHA:0:7})"
+          git push https://youruser:${GITEA_WIKI_TOKEN}@git.home/Auralis/Homelab_Infra.wiki.git 2>&1
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          curl -s \
+            -H "Title: Wiki sync failed" \
+            -H "Priority: high" \
+            -H "Tags: warning" \
+            -d "Branch: ${GITHUB_REF_NAME} — Commit: ${GITHUB_SHA:0:7}" \
+            https://ntfy.sh/${NTFY_TOPIC}

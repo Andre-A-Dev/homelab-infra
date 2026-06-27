@@ -131,3 +131,13 @@ jobs:
             -H "Tags: warning" \
             -d "Branch: ${GITHUB_REF_NAME} — Commit: ${GITHUB_SHA:0:7}" \
             https://ntfy.sh/Mnemosyne-Validate-<topic>
+
+      - name: Notify on success
+        if: success()
+        run: |
+          curl -s \
+            -H "Title: ✅ Validation passed" \
+            -H "Priority: low" \
+            -H "Tags: info" \
+            -d "Branch: ${GITHUB_REF_NAME} — Commit: ${GITHUB_SHA:0:7}" \
+            https://ntfy.sh/Mnemosyne-Validate-<topic>
