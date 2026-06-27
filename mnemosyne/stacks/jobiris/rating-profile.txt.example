@@ -1,0 +1,37 @@
+You are evaluating job postings for a Build & Release Engineer / Build Manager
+with approximately 10 years of experience in embedded and automotive software
+at a large automotive supplier. Core competencies: Jenkins CI/CD, build
+infrastructure automation, Python, Bash, Docker, Groovy pipelines.
+
+Active career transition toward Platform Engineering / DevOps.
+Current skill gaps being filled: Kubernetes (k3s), Flux CD, Terraform.
+Home location: southern Germany. Desired salary: ≥ 70,000 EUR/year.
+
+Rate the posting on a scale of 1–10 against the following criteria:
+
+HIGH WEIGHT (positive):
+- CI/CD relevance: Jenkins, GitHub Actions, GitLab CI, Azure DevOps
+- Platform Engineering or DevOps direction in job title or responsibilities
+- Build automation, release engineering, infrastructure-as-code
+- Docker, container orchestration (Kubernetes a plus, not a requirement)
+- Python or Bash scripting expected
+
+HIGH WEIGHT (negative):
+- Requires deep Kubernetes expertise as a hard prerequisite (not a gap to grow into)
+- Salary below 70,000 EUR/year (if stated)
+- Daily commute >60 km without hybrid or remote option
+- Pure embedded / hardware-near development with no DevOps component
+
+MEDIUM WEIGHT:
+- Automotive or embedded background required: slight negative (moving away from it,
+  but not a dealbreaker if combined with CI/CD focus)
+- Relocation required without remote option: negative
+- Cloud provider experience (AWS, Azure, GCP): positive signal
+- Linux system administration: positive signal
+- Agile/Scrum environment: neutral to slight positive
+
+Return ONLY valid JSON — no markdown, no preamble, no trailing text:
+{
+  "score": <integer 1-10>,
+  "summary": "<2-3 sentences: overall fit, key strengths, key gaps or dealbreakers>"
+}

@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <title>JobIris – Charts</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg:       #f7f7f9;
+      --bg-card:  #ffffff;
+      --fg:       #1f1f23;
+      --muted:    #6b6b76;
+      --border:   #e0e0e6;
+      --accent:   #5b4b8a;
+      --shadow:   0 1px 3px rgba(0,0,0,0.08);
+    }
+    [data-theme="dark"] {
+      --bg:       #16161e;
+      --bg-card:  #1e1e2a;
+      --fg:       #d8d8e8;
+      --muted:    #888898;
+      --border:   #2e2e3e;
+      --accent:   #9d85d4;
+      --shadow:   0 1px 3px rgba(0,0,0,0.4);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--fg);
+      margin: 0; padding: 1rem;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    /* Nav */
+    .header {
+      display: flex; align-items: baseline;
+      justify-content: space-between; flex-wrap: wrap;
+      gap: 0.5rem; margin-bottom: 0.8rem;
+    }
+    h1 { font-size: 1.4rem; margin: 0; }
+
+    .nav { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .nav a {
+      color: var(--muted); text-decoration: none; font-size: 0.88rem;
+      padding: 0.25rem 0.6rem; border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .nav a:hover, .nav a.active {
+      color: var(--accent); border-color: var(--accent);
+      background: var(--bg-card);
+    }
+
+    .theme-toggle {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 20px; padding: 0.25rem 0.7rem;
+      font-size: 0.8rem; cursor: pointer; color: var(--muted);
+    }
+    .theme-toggle:hover { color: var(--fg); border-color: var(--accent); }
+
+    /* Grid */
+    .charts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+      gap: 1rem;
+    }
+
+    .chart-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      padding: 1rem;
+    }
+    .chart-card h2 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin: 0 0 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    canvas { max-height: 260px; }
+
+    .loading {
+      text-align: center;
+      padding: 3rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 600px) {
+      .charts-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>🔍 JobIris</h1>
+    <div class="nav">
+      <a href="/">📋 Board</a>
+      <a href="/charts" class="active">📊 Charts</a>
+      <button class="theme-toggle" id="theme-btn" onclick="toggleTheme()">🌙 Dark</button>
+    </div>
+  </div>
+
+  <div id="loading" class="loading">⏳ Lade Daten…</div>
+
+  <div class="charts-grid" id="charts-grid" style="display:none">
+
+    <div class="chart-card">
+      <h2>Neue Treffer pro Tag</h2>
+      <canvas id="chart-daily"></canvas>
+    </div>
+
+    <div class="chart-card">
+      <h2>Kumulierte Treffer</h2>
+      <canvas id="chart-cumulative"></canvas>
+    </div>
+
+    <div class="chart-card">
+      <h2>Statusverteilung</h2>
+      <canvas id="chart-status"></canvas>
+    </div>
+
+    <div class="chart-card">
+      <h2>Entfernungsverteilung (ab Wohnort)</h2>
+      <canvas id="chart-distance"></canvas>
+    </div>
+
+  </div>
+
+  <script>
+    // ------------------------------------------------------------------ //
+    // Dark mode                                                            //
+    // ------------------------------------------------------------------ //
+    const html = document.documentElement;
+    const btn  = document.getElementById('theme-btn');
+
+    function applyTheme(t) {
+      html.setAttribute('data-theme', t);
+      btn.textContent = t === 'dark' ? '☀️ Light' : '🌙 Dark';
+      localStorage.setItem('jobiris-theme', t);
+    }
+    function toggleTheme() {
+      applyTheme(html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    }
+    (function(){
+      const s = localStorage.getItem('jobiris-theme');
+      if (s) applyTheme(s);
+      else if (window.matchMedia('(prefers-color-scheme: dark)').matches) applyTheme('dark');
+    })();
+
+    // ------------------------------------------------------------------ //
+    // Chart helpers                                                        //
+    // ------------------------------------------------------------------ //
+
+    function fg()     { return getComputedStyle(html).getPropertyValue('--fg').trim(); }
+    function muted()  { return getComputedStyle(html).getPropertyValue('--muted').trim(); }
+    function border() { return getComputedStyle(html).getPropertyValue('--border').trim(); }
+    function accent() { return getComputedStyle(html).getPropertyValue('--accent').trim(); }
+
+    const DEFAULTS = {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { labels: { color: () => fg(), font: { size: 12 } } },
+      },
+      scales: {
+        x: { ticks: { color: () => muted(), maxRotation: 45 },
+             grid:  { color: () => border() } },
+        y: { ticks: { color: () => muted() },
+             grid:  { color: () => border() }, beginAtZero: true },
+      },
+    };
+
+    // Status colours
+    const STATUS_COLORS = {
+      'Neu':                  '#9d85d4',
+      'Interessant':          '#7ab8e8',
+      'Beworben':             '#6ecf94',
+      'Feedback ausstehend':  '#f0c060',
+      'Absage erhalten':      '#e87878',
+      'Nicht relevant':       '#888898',
+    };
+
+    // Distance bucket colours (sequential purple → teal)
+    const DIST_COLORS = [
+      '#5b4b8a', '#7b6baa', '#4a90b8', '#3a7a9a', '#2a6a7a', '#888898'
+    ];
+
+    // ------------------------------------------------------------------ //
+    // Build charts                                                         //
+    // ------------------------------------------------------------------ //
+
+    function buildCharts(data) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('charts-grid').style.display = '';
+
+      // 1. Daily bar chart
+      new Chart(document.getElementById('chart-daily'), {
+        type: 'bar',
+        data: {
+          labels: data.daily.map(d => d.day),
+          datasets: [{
+            label: 'Neue Treffer',
+            data: data.daily.map(d => d.count),
+            backgroundColor: accent() + 'cc',
+            borderColor: accent(),
+            borderWidth: 1,
+            borderRadius: 3,
+          }],
+        },
+        options: {
+          ...DEFAULTS,
+          plugins: { ...DEFAULTS.plugins, legend: { display: false } },
+        },
+      });
+
+      // 2. Cumulative line chart
+      new Chart(document.getElementById('chart-cumulative'), {
+        type: 'line',
+        data: {
+          labels: data.cumulative.map(d => d.day),
+          datasets: [{
+            label: 'Gesamt',
+            data: data.cumulative.map(d => d.total),
+            borderColor: accent(),
+            backgroundColor: accent() + '22',
+            borderWidth: 2,
+            pointRadius: 2,
+            fill: true,
+            tension: 0.3,
+          }],
+        },
+        options: {
+          ...DEFAULTS,
+          plugins: { ...DEFAULTS.plugins, legend: { display: false } },
+        },
+      });
+
+      // 3. Status donut
+      const statusLabels = data.status_dist.map(d => d.status);
+      const statusCounts = data.status_dist.map(d => d.count);
+      const statusColors = statusLabels.map(l => STATUS_COLORS[l] || '#888898');
+
+      new Chart(document.getElementById('chart-status'), {
+        type: 'doughnut',
+        data: {
+          labels: statusLabels,
+          datasets: [{
+            data: statusCounts,
+            backgroundColor: statusColors,
+            borderColor: getComputedStyle(html).getPropertyValue('--bg-card'),
+            borderWidth: 3,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: { color: fg(), font: { size: 12 }, padding: 12 },
+            },
+          },
+        },
+      });
+
+      // 4. Distance bar chart (filter out zero-count buckets)
+      const distData = data.distance.filter(d => d.count > 0);
+      new Chart(document.getElementById('chart-distance'), {
+        type: 'bar',
+        data: {
+          labels: distData.map(d => d.label),
+          datasets: [{
+            label: 'Stellen',
+            data: distData.map(d => d.count),
+            backgroundColor: DIST_COLORS.slice(0, distData.length),
+            borderWidth: 0,
+            borderRadius: 3,
+          }],
+        },
+        options: {
+          ...DEFAULTS,
+          plugins: { ...DEFAULTS.plugins, legend: { display: false } },
+          indexAxis: 'y',  // horizontal bars – easier to read distance labels
+          scales: {
+            x: { ticks: { color: () => muted() }, grid: { color: () => border() }, beginAtZero: true },
+            y: { ticks: { color: () => fg() },    grid: { display: false } },
+          },
+        },
+      });
+    }
+
+    // ------------------------------------------------------------------ //
+    // Fetch data                                                           //
+    // ------------------------------------------------------------------ //
+
+    fetch('/api/charts')
+      .then(r => r.json())
+      .then(buildCharts)
+      .catch(err => {
+        document.getElementById('loading').textContent = '⚠️ Fehler beim Laden: ' + err;
+      });
+  </script>
+</body>
+</html>

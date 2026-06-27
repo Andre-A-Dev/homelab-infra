@@ -50,27 +50,38 @@ LOG_BACKUP_COUNT = 5
 log = logging.getLogger("jobiris")
 
 
-def setup_logging(log_file: Path) -> None:
+def setup_logging(log_file: Path, tz_name: str = "UTC") -> None:
     """Log to stdout (picked up by journalctl) and, if writable, to a
-    rotating logfile next to the dedup database."""
-    handlers = [logging.StreamHandler()]
+    rotating logfile next to the dedup database.
+    tz_name: IANA timezone name (e.g. 'Europe/Berlin'). Defaults to UTC."""
+    import zoneinfo
+
+    try:
+        tz = zoneinfo.ZoneInfo(tz_name)
+    except Exception:
+        tz = timezone.utc
+        print(f"Unknown timezone {tz_name!r}, falling back to UTC", file=sys.stderr)
+
+    class _LocalFormatter(logging.Formatter):
+        def formatTime(self, record, datefmt=None):
+            dt = datetime.fromtimestamp(record.created, tz=tz)
+            return dt.strftime(datefmt or "%Y-%m-%d %H:%M:%S,%f")[:-3]
+
+    fmt = _LocalFormatter("%(asctime)s %(levelname)s %(message)s")
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    handlers[0].setFormatter(fmt)
 
     try:
         log_file.parent.mkdir(parents=True, exist_ok=True)
-        handlers.append(
-            RotatingFileHandler(
-                log_file, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT, encoding="utf-8"
-            )
+        fh = RotatingFileHandler(
+            log_file, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT, encoding="utf-8"
         )
+        fh.setFormatter(fmt)
+        handlers.append(fh)
     except OSError as exc:
         print(f"Could not set up log file {log_file}: {exc}", file=sys.stderr)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
-        handlers=handlers,
-        force=True,
-    )
+    logging.basicConfig(level=logging.INFO, handlers=handlers, force=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -122,20 +133,27 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS seen_jobs (
-            refnr       TEXT PRIMARY KEY,
-            titel       TEXT,
-            arbeitgeber TEXT,
-            ort         TEXT,
-            url         TEXT,
-            distance_km INTEGER,
-            distance    TEXT,
-            salary      TEXT,
-            salary_from INTEGER,
-            home_office TEXT,
-            profile     TEXT,
-            tag         TEXT,
-            status      TEXT DEFAULT 'Neu',
-            first_seen  TEXT
+            refnr             TEXT PRIMARY KEY,
+            titel             TEXT,
+            arbeitgeber       TEXT,
+            ort               TEXT,
+            url               TEXT,
+            lat               REAL,
+            lon               REAL,
+            distance_home_km  INTEGER,
+            distance_home     TEXT,
+            published_at      TEXT,
+            salary            TEXT,
+            salary_from       INTEGER,
+            home_office       TEXT,
+            ignore_match      TEXT,
+            notes             TEXT,
+            profile           TEXT,
+            tag               TEXT,
+            status            TEXT DEFAULT 'Neu',
+            status_changed_at TEXT,
+            applied_at        TEXT,
+            first_seen        TEXT
         )
         """
     )
@@ -143,13 +161,20 @@ def init_db(db_path: Path) -> sqlite3.Connection:
 
     # Migration for databases created before the board feature
     _ensure_columns(conn, "seen_jobs", {
-        "distance_km": "INTEGER",
-        "distance": "TEXT",
-        "salary": "TEXT",
-        "salary_from": "INTEGER",
-        "home_office": "TEXT",
-        "tag": "TEXT",
-        "status": "TEXT DEFAULT 'Neu'",
+        "distance_home_km":  "INTEGER",
+        "distance_home":     "TEXT",
+        "published_at":      "TEXT",
+        "salary":            "TEXT",
+        "salary_from":       "INTEGER",
+        "home_office":       "TEXT",
+        "ignore_match":      "TEXT",
+        "notes":             "TEXT",
+        "tag":               "TEXT",
+        "status":            "TEXT DEFAULT 'Neu'",
+        "status_changed_at": "TEXT",
+        "applied_at":        "TEXT",
+        "lat":               "REAL",
+        "lon":               "REAL",
     })
     return conn
 
@@ -161,12 +186,17 @@ def is_known(conn: sqlite3.Connection, refnr: str) -> bool:
 
 
 def mark_seen(conn: sqlite3.Connection, job: dict, profile_name: str) -> None:
+    status = job.get("_status", "Neu")
+    now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
         INSERT OR IGNORE INTO seen_jobs
-            (refnr, titel, arbeitgeber, ort, url, distance_km, distance,
-             salary, salary_from, home_office, profile, tag, status, first_seen)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Neu', ?)
+            (refnr, titel, arbeitgeber, ort, url, lat, lon,
+             distance_home_km, distance_home, published_at,
+             salary, salary_from, home_office,
+             ignore_match, notes, profile, tag,
+             status, status_changed_at, applied_at, first_seen)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, NULL, ?)
         """,
         (
             job["refnr"],
@@ -174,14 +204,20 @@ def mark_seen(conn: sqlite3.Connection, job: dict, profile_name: str) -> None:
             job["arbeitgeber"],
             job["ort"],
             job["url"],
-            job.get("distance_km"),
-            job.get("distance"),
+            job.get("lat"),
+            job.get("lon"),
+            job.get("distance_home_km"),
+            job.get("distance_home"),
+            job.get("published_at"),
             job.get("salary"),
             job.get("salary_from"),
             job.get("home_office"),
+            job.get("_ignore_match"),
             profile_name,
             job.get("_tag", profile_name),
-            datetime.now(timezone.utc).isoformat(),
+            status,
+            now,
+            now,
         ),
     )
     conn.commit()
@@ -287,25 +323,47 @@ def _format_home_office(raw: dict) -> str | None:
     return "Home office möglich"
 
 
-def normalize_job(raw: dict) -> dict:
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> int:
+    """Great-circle distance between two points in km, rounded to nearest km."""
+    import math
+    R = 6371
+    d_lat = math.radians(lat2 - lat1)
+    d_lon = math.radians(lon2 - lon1)
+    a = (math.sin(d_lat / 2) ** 2
+         + math.cos(math.radians(lat1))
+         * math.cos(math.radians(lat2))
+         * math.sin(d_lon / 2) ** 2)
+    return round(R * 2 * math.asin(math.sqrt(a)))
+
+
+def normalize_job(
+    raw: dict,
+    search_wo: str | None = None,
+    home_lat: float | None = None,
+    home_lon: float | None = None,
+) -> dict:
     refnr = raw["referenznummer"]
 
     locations = raw.get("stellenlokationen") or []
+    lat = lon = None
     if locations:
         ort_full = _location_name(locations[0])
-        # API often returns "Nürnberg, Mittelfranken" - keep only the city part
         ort = ort_full.split(",")[0].strip()
         if len(locations) > 1:
             ort = f"{ort} (+{len(locations) - 1} more)"
+        lat = locations[0].get("breite")
+        lon = locations[0].get("laenge")
     else:
         ort = "(unknown)"
 
     url = raw.get("externeURL") or f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
 
-    distance = raw.get("entfernung")
-    salary = _format_salary(raw)
+    # Real distance from home via Haversine (preferred, always comparable)
+    distance_home_km = None
+    if lat and lon and home_lat and home_lon:
+        distance_home_km = _haversine_km(home_lat, home_lon, lat, lon)
 
-    # Numeric salary floor for DB sorting (None if not available)
+    salary = _format_salary(raw)
     salary_from = raw.get("gehaltsspanneVon")
     if salary_from is not None:
         salary_from = int(salary_from)
@@ -316,8 +374,11 @@ def normalize_job(raw: dict) -> dict:
         "arbeitgeber": raw.get("firma", "(unknown)"),
         "ort": ort,
         "url": url,
-        "distance_km": distance,
-        "distance": f"{distance} km" if distance is not None else None,
+        "lat": lat,
+        "lon": lon,
+        "distance_home_km": distance_home_km,
+        "distance_home": f"{distance_home_km} km" if distance_home_km is not None else None,
+        "published_at": raw.get("datumErsteVeroeffentlichung"),  # YYYY-MM-DD string
         "salary": salary,
         "salary_from": salary_from,
         "home_office": _format_home_office(raw),
@@ -348,8 +409,11 @@ def send_ntfy_notifications(new_jobs_by_profile: dict) -> int:
     sent = 0
     for jobs in new_jobs_by_profile.values():
         for job in jobs:
+            # Don't notify for pre-rejected jobs
+            if job.get("_status") == "Abgelehnt":
+                continue
             extras = [
-                e for e in (job.get("distance"), job.get("home_office"), job.get("salary"))
+                e for e in (job.get("distance_home"), job.get("home_office"), job.get("salary"))
                 if e
             ]
             body_lines = [job["arbeitgeber"], job["ort"]]
@@ -389,9 +453,46 @@ def send_ntfy_notifications(new_jobs_by_profile: dict) -> int:
 # Main
 # --------------------------------------------------------------------------- #
 
+import json as _json  # avoid shadowing at module level; aliased for clarity
+
+
+def write_last_run_status(
+    schedule: str,
+    total_checked: int,
+    total_new: int,
+    total_errors: int,
+    dry_run: bool,
+) -> None:
+    """Write a small JSON status file read by the board to display last-run info."""
+    status_path = DEFAULT_DB.parent / "last_run.json"
+    payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "schedule": schedule,
+        "total_checked": total_checked,
+        "total_new": total_new,
+        "total_errors": total_errors,
+        "dry_run": dry_run,
+    }
+    try:
+        status_path.write_text(_json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError as exc:
+        log.warning("Could not write last_run.json: %s", exc)
+
+
 def run(config: dict, conn: sqlite3.Connection, schedule: str, dry_run: bool) -> None:
     defaults = config.get("defaults", {})
     profiles_to_run = [p for p in config["profiles"] if p["schedule"] == schedule]
+    home = config.get("home", {})
+    home_lat = home.get("lat")
+    home_lon = home.get("lon")
+
+    soft_ignore = config.get("soft_ignore", {})
+    ignore_terms = [t.lower() for t in soft_ignore.get("terms", [])]
+    ignore_action = soft_ignore.get("action", "flag")
+
+    ignore_emp = config.get("ignore_employers", {})
+    ignore_emp_terms = [t.lower() for t in ignore_emp.get("terms", [])]
+    ignore_emp_action = ignore_emp.get("action", "pre-reject")  # "flag" or "pre-reject"
 
     if not profiles_to_run:
         log.warning("No profiles configured for schedule=%s - nothing to do.", schedule)
@@ -421,16 +522,54 @@ def run(config: dict, conn: sqlite3.Connection, schedule: str, dry_run: bool) ->
                 else:
                     profile_checked += len(raw_jobs)
                     for raw in raw_jobs:
-                        job = normalize_job(raw)
+                        job = normalize_job(
+                            raw,
+                            search_wo=location.get("wo"),
+                            home_lat=home_lat,
+                            home_lon=home_lon,
+                        )
                         if is_known(conn, job["refnr"]):
                             continue
                         job["_tag"] = tag
+
+                        # Employer ignore: check arbeitgeber against ignore_emp_terms
+                        arbeitgeber_lower = job["arbeitgeber"].lower()
+                        emp_matches = [t for t in ignore_emp_terms if t in arbeitgeber_lower]
+                        if emp_matches:
+                            job["_ignore_match"] = f"ANÜ: {', '.join(emp_matches)}"
+                            job["_status"] = "Nicht relevant" if ignore_emp_action == "pre-reject" else "Neu"
+                            log.info(
+                                "  %s employer: %s | matched: %s",
+                                ignore_emp_action, job["arbeitgeber"], ", ".join(emp_matches),
+                            )
+                        else:
+                            # Soft ignore: check title against ignore_terms
+                            titel_lower = job["titel"].lower()
+                            matched_terms = [t for t in ignore_terms if t in titel_lower]
+                            if matched_terms:
+                                job["_ignore_match"] = ", ".join(matched_terms)
+                                if ignore_action == "pre-reject":
+                                    job["_status"] = "Nicht relevant"
+                                    log.info(
+                                        "  pre-reject: %s | matched: %s",
+                                        job["titel"], job["_ignore_match"],
+                                    )
+                                else:
+                                    job["_status"] = "Neu"
+                                    log.info(
+                                        "  flagged: %s | matched: %s",
+                                        job["titel"], job["_ignore_match"],
+                                    )
+                            else:
+                                job["_ignore_match"] = None
+                                job["_status"] = "Neu"
+
                         new_jobs_by_profile.setdefault(profile["name"], []).append(job)
                         if not dry_run:
                             mark_seen(conn, job, profile["name"])
                         else:
                             extras = [
-                                e for e in (job.get("distance"), job.get("home_office"), job.get("salary"))
+                                e for e in (job.get("distance_home"), job.get("home_office"), job.get("salary"))
                                 if e
                             ]
                             extra_str = f" | {' | '.join(extras)}" if extras else ""
@@ -465,6 +604,7 @@ def run(config: dict, conn: sqlite3.Connection, schedule: str, dry_run: bool) ->
     if pruned:
         log.info("Pruned %d oldest entr%s (keeping %d most recent).", pruned, "y" if pruned == 1 else "ies", MAX_ENTRIES)
 
+    write_last_run_status(schedule, total_checked, total_new, total_errors, dry_run)
     log.info("JobIris run finished.")
 
 
@@ -490,12 +630,17 @@ def main() -> int:
         help="Path to rotating log file (in addition to stdout)",
     )
     parser.add_argument(
+        "--timezone",
+        default=os.environ.get("JOBIRIS_TIMEZONE", "Europe/Berlin"),
+        help="IANA timezone for log timestamps (default: Europe/Berlin)",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Run without writing to the database or sending notifications",
     )
     args = parser.parse_args()
 
-    setup_logging(args.log_file)
+    setup_logging(args.log_file, tz_name=args.timezone)
 
     config = load_config(args.config)
     conn = init_db(args.db)
