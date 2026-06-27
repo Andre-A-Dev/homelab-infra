@@ -257,8 +257,12 @@ services:
     build: ./shelly_exporter
     container_name: shelly-exporter
     environment:
-      # Format: "display-name:ip:gen"  (gen=1 or gen=2)
-      - SHELLY_DEVICES=${SHELLY_DEVICES}
+      # Power plugs — format: "name:host:gen"  (gen=1 or gen=2)
+      - SHELLY_DEVICES=${SHELLY_DEVICES:-}
+      # H&T Gen3 — format: "name;host,..."
+      - SHELLY_HT_DEVICES=${SHELLY_HT_DEVICES:-}
+      # BLU H&T via gateway KVS — format: "name;gateway_host;mac,..."
+      - SHELLY_BLU_DEVICES=${SHELLY_BLU_DEVICES:-}
       - POLL_INTERVAL=${POLL_INTERVAL_SHELLY:-15}
       - EXPORTER_PORT=9117
     ports:
