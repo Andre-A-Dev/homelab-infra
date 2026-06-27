@@ -25,7 +25,7 @@ Both networks use the `192.168.1.0/24` address range — a deliberate non-issue.
 graph TD
     subgraph home["Home network — 192.168.1.0/24"]
         Mnemosyne["Mnemosyne · Pi 5<br/>192.168.1.10<br/>Primary server"]
-        Boreas["Boreas · Pi 3B<br/>192.168.1.11<br/>DNS + subnet router"]
+        Boreas["Boreas · Pi 3B<br/>192.168.1.11<br/>DNS"]
         Hephaestus["Hephaestus · Pi 3B<br/>192.168.1.13<br/>Heating integration"]
         FritzHome["FritzBox 5690 Pro<br/>192.168.1.1"]
     end
@@ -41,8 +41,7 @@ graph TD
 
     Internet["Internet / deSEC DynDNS"]
 
-    Boreas -- "subnet router\n192.168.1.0/24" --> TS
-    Mnemosyne -- "100.x.x.x" --> TS
+    Mnemosyne -- "subnet router\n192.168.1.0/24" --> TS
     Zephyros -- "100.y.y.y" --> TS
     Hephaestus -. "local only" .- Mnemosyne
     FritzHome --> Mnemosyne
@@ -138,7 +137,7 @@ Netdata was the initial monitoring solution. It was replaced for two reasons.
 
 First, Prometheus + Grafana is the industry standard stack for infrastructure monitoring. Familiarity with it has direct professional value in a way that Netdata does not.
 
-Second, the pull-based model of Prometheus scales naturally. Adding a new scrape target (a new host, a custom exporter) requires one config block in `prometheus.yml`. The custom exporters in this setup — for Philips Hue, for Pi-hole v6, for Netatmo weather, for Shelly smart plugs — were built specifically because the pull model makes it straightforward to expose any metric from any source.
+Second, the pull-based model of Prometheus scales naturally. Adding a new scrape target (a new host, a custom exporter) requires one config block in `prometheus.yml`. The custom exporters in this setup — for Pi-hole v6, for Netatmo weather, for Shelly smart plugs — were built specifically because the pull model makes it straightforward to expose any metric from any source.
 
 **Textfile collector pattern**
 
@@ -148,12 +147,18 @@ For metrics that cannot be scraped live (Pi 5 fan level, Tailscale status, backu
 
 A custom Python exporter (`shelly-exporter`) polls Shelly smart plugs via their local REST API — Gen1 devices via `/status`, Gen2/3 via `/rpc/Switch.GetStatus`. No cloud, no MQTT. Devices are configured via the `SHELLY_DEVICES` environment variable in the format `name:host:gen`. The exporter runs on Mnemosyne on port `9117`.
 
+**Alertmanager**
+
+Prometheus routes firing alerts to Alertmanager (`alertmanager.home`, port `9093`), which forwards them to ntfy topics. Separate topics are configured per severity (critical / warning) and per alert group (Mnemosyne infrastructure, Viessmann heating pump). Alertmanager runs in the same `monitoring` stack as Prometheus; its configuration is templated at startup so ntfy topic names stay out of the committed file.
+
 **Scrape topology**
 
 ```mermaid
 graph TD
     Prometheus["Prometheus
 Mnemosyne :9090"]
+    Alertmanager["Alertmanager
+Mnemosyne :9093"]
 
     subgraph mnemosyne["Mnemosyne"]
         NE_M["Node Exporter :9100
@@ -166,8 +171,9 @@ home FritzBox"]
         Tado["Tado Exporter"]
         NC_Exp["Nextcloud Exporter :9205"]
         cAdvisor["cAdvisor :8080"]
-        Hue["Hue Exporter :9366"]
         Shelly["Shelly Exporter :9117"]
+        Wakapi["Wakapi :3000
+/api/metrics"]
         Gitea_Exp["Gitea Exporter"]
     end
 
@@ -181,6 +187,8 @@ home FritzBox"]
         PH_Z["pihole6-exporter :9666"]
         Fritz_P["Fritz Exporter :9787
 remote FritzBox"]
+        Fritz_Lua["Fritz Exporter Lua :9042
+DECT + system metrics"]
     end
 
     subgraph hephaestus["Hephaestus (via LAN)"]
@@ -189,10 +197,11 @@ remote FritzBox"]
 (viessmann)"]
     end
 
-    Prometheus --> NE_M & Blackbox & Netatmo & Fritz_H & Tado & NC_Exp & cAdvisor & Hue & Shelly & Gitea_Exp
+    Prometheus --> NE_M & Blackbox & Netatmo & Fritz_H & Tado & NC_Exp & cAdvisor & Shelly & Wakapi & Gitea_Exp
     Prometheus --> NE_B & PH_B
-    Prometheus --> NE_Z & PH_Z & Fritz_P
+    Prometheus --> NE_Z & PH_Z & Fritz_P & Fritz_Lua
     Prometheus --> NE_H
+    Prometheus -. "alerts" .-> Alertmanager
 
     Grafana["Grafana
 Mnemosyne :3001"] --> Prometheus

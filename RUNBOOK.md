@@ -271,14 +271,14 @@ curl -s http://localhost:9117/metrics | grep shelly_device_online
 ### Restart
 
 ```bash
-cd ~/stacks/shelly-exporter
-docker compose restart
-docker compose logs -f --tail 30
+cd ~/stacks/monitoring
+docker compose restart shelly-exporter
+docker compose logs shelly-exporter -f --tail 30
 ```
 
 ### Add a new device
 
-Edit `~/stacks/shelly-exporter/.env` and append to `SHELLY_DEVICES`:
+Edit `~/stacks/monitoring/.env` and append to `SHELLY_DEVICES`:
 
 ```
 SHELLY_DEVICES=existing-device:192.168.x.x:2,new-device:192.168.x.x:3
@@ -289,6 +289,45 @@ Format: `name:host:gen` — gen `1` for Gen1, `2` or `3` for Gen2/3.
 ```bash
 docker compose up -d
 curl -s http://localhost:9117/metrics | grep shelly_device_online
+```
+
+---
+
+## Alertmanager
+
+### Check firing alerts
+
+```bash
+curl -s http://localhost:9093/api/v2/alerts | python3 -m json.tool
+```
+
+### Check Alertmanager status
+
+```bash
+cd ~/stacks/monitoring
+docker compose logs alertmanager --tail 30
+```
+
+### Silence an alert (via UI)
+
+Open `https://alertmanager.home` → **Silences** → **New Silence**. Set matcher, duration, and comment.
+
+### Silence an alert (via CLI)
+
+```bash
+# List active silences
+curl -s http://localhost:9093/api/v2/silences | python3 -m json.tool
+
+# Delete a silence by ID
+curl -X DELETE http://localhost:9093/api/v2/silences/<silence-id>
+```
+
+### Restart Alertmanager
+
+```bash
+cd ~/stacks/monitoring
+docker compose restart alertmanager
+docker compose logs alertmanager --tail 20
 ```
 
 ---

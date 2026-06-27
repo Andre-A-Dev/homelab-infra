@@ -24,15 +24,22 @@ Infrastructure-as-code for a privacy-first Raspberry Pi homelab. Covers Docker C
 
 ```
 homelab-infra/
+├── shared/
+│   └── scripts/                    # Multi-host scripts — hostname-dispatched, symlinked to /usr/local/bin/
+│       ├── gitea-webhook-handler.sh
+│       ├── gitea-pull.sh
+│       ├── system-update.sh
+│       └── check-container-updates.sh
 ├── mnemosyne/
-│   ├── scripts/                    # Shell scripts — symlinked to /usr/local/bin/
+│   ├── scripts/                    # Mnemosyne-specific scripts — symlinked to /usr/local/bin/
 │   │   ├── backup-services.sh
 │   │   ├── verify-backup.sh
 │   │   ├── restore-services.sh
 │   │   ├── tailscale-metrics.sh
 │   │   ├── fan-metrics.sh
 │   │   ├── export-grafana-dashboards.sh
-│   │   └── gitea-webhook-handler.sh
+│   │   ├── container-update-metrics.sh
+│   │   └── pump-alerts-deploy.sh
 │   ├── stacks/                     # Docker Compose stacks — symlinked from ~/stacks/
 │   │   ├── caddy/                  # Reverse proxy + internal CA
 │   │   ├── vaultwarden/            # Password manager
@@ -44,8 +51,10 @@ homelab-infra/
 │   │   ├── ghostproxy/             # Ghost proxy tool
 │   │   ├── immich/                 # Photo management
 │   │   ├── homepage/               # Homelab dashboard
-│   │   ├── monitoring/             # Prometheus, Grafana, exporters
-│   │   ├── solar/                  # Huawei solar exporter (pending)
+│   │   ├── monitoring/             # Prometheus, Grafana, Alertmanager, exporters
+│   │   ├── wakapi/                 # Coding time tracker
+│   │   ├── jobiris/                # Job board monitor
+│   │   ├── solar/                  # FusionSolar exporter (inactive — Modbus TCP not available)
 │   │   └── diun/                   # Container update notifications
 │   ├── systemd/                    # Systemd units — copied to /etc/systemd/system/
 │   │   └── fan-metrics.timer / fan-metrics.service
@@ -93,8 +102,11 @@ homelab-infra/
 | Homepage | `https://homepage.home` | `homepage/` |
 | Calibre-Web | `https://calibre.home` | `calibre/` |
 | KOSync | `https://kosync.home` | `calibre/` |
+| Wakapi | `https://wakapi.home` | `wakapi/` |
+| Jobiris | `https://jobiris.home` | `jobiris/` |
 | Grafana | `https://grafana.home` | `monitoring/` |
 | Prometheus | `https://prometheus.home` | `monitoring/` |
+| Alertmanager | `https://alertmanager.home` | `monitoring/` |
 | Syncthing | `https://syncthing.home` | systemd |
 
 ### Boreas
@@ -215,10 +227,12 @@ Prometheus scrapes metrics from Mnemosyne, Boreas, Zephyros, Hephaestus, and Win
 | Netatmo weather | netatmo-exporter | Mnemosyne |
 | FritzBox (home) | fritz-exporter | Mnemosyne |
 | FritzBox (remote) | fritz-exporter | Zephyros |
+| FritzBox DECT + system (remote) | fritzbox-lua exporter | Zephyros |
 | Tado heating | tado-exporter | Mnemosyne |
 | Nextcloud | nextcloud-exporter | Mnemosyne |
 | Containers | cAdvisor | Mnemosyne |
-| Shelly plugs | shelly-exporter (port 9117) | Mnemosyne |
+| Shelly plugs | shelly-exporter | Mnemosyne |
+| Wakapi coding stats | wakapi (`/api/metrics`) | Mnemosyne |
 | Tailscale | textfile collector | Mnemosyne |
 | Windows system (AstraeusNX) | Node Exporter | AstraeusNX (Windows) |
 | Nvidia GPU (AstraeusNX) | Nvidia Exporter | AstraeusNX (Windows) |

@@ -21,8 +21,11 @@ All internal `.home` domains require the Caddy root certificate to be imported o
 | Prometheus | `https://prometheus.home` | `443` | Internal CA | ✅ |
 | Calibre-Web | `https://calibre.home` | `443` | Internal CA | ✅ |
 | KOSync | `https://kosync.home` | `443` | Internal CA | ✅ |
+| Wakapi | `https://wakapi.home` | `443` | Internal CA | ✅ |
+| Jobiris | `https://jobiris.home` | `443` | Internal CA | ✅ |
 | Syncthing | `https://syncthing.home` | `443` | Internal CA | ✅ |
 | Viessmann | `https://viessmann.home` | `443` | Internal CA | ✅ |
+| Alertmanager | `https://alertmanager.home` | `443` | Internal CA | ✅ |
 | Caddy (HTTP) | — | `80` | — | — |
 | Webhook listener | — | `9000` | — | — |
 
@@ -32,12 +35,12 @@ All internal `.home` domains require the Caddy root certificate to be imported o
 |---|---|---|
 | Node Exporter | `9100` | System metrics |
 | Blackbox Exporter | `9115` | HTTP uptime checks |
+| Alertmanager | `9093` | Alert routing → ntfy |
 | Netatmo Exporter | `9210` | Weather station |
 | Fritz Exporter (home) | `9787` | FritzBox home network |
 | Tado Exporter | `9100` | Heating metrics |
 | Nextcloud Exporter | `9205` | Nextcloud metrics |
 | cAdvisor | `8080` | Container metrics |
-| Hue Exporter | `9366` | Philips Hue lights |
 | Shelly Exporter | `9117` | Shelly smart plugs (Gen1 + Gen2/3) |
 
 > Prometheus (`9090`) and all exporters are internal only. Never expose these ports externally.
@@ -67,6 +70,7 @@ All internal `.home` domains require the Caddy root certificate to be imported o
 | Node Exporter | — | `9100` | Scraped by Prometheus on Mnemosyne via Tailscale |
 | Pi-hole Exporter | — | `9666` | systemd service, scraped via Tailscale |
 | Fritz Exporter | — | `9787` | FritzBox at remote's location |
+| Fritz Exporter Lua | — | `9042` | FritzBox DECT + system metrics via Lua API |
 
 ### Proxied domains (via Zephyros Caddy → Mnemosyne)
 
@@ -137,6 +141,8 @@ Devices on the remote's network without Tailscale can access these `.home` servi
 | Ghost content | `/mnt/codex/ghost/content/` | Mnemosyne |
 | Calibre library | `/mnt/codex/calibre-library/Library/` | Mnemosyne |
 | Syncthing vault | `/mnt/codex/syncthing/obsidian/` | Mnemosyne |
+| Wakapi data | `/mnt/codex/wakapi/` | Mnemosyne |
+| Alertmanager data | `/mnt/codex/alertmanager/` | Mnemosyne |
 | Netatmo token | `/mnt/codex/netatmo-exporter/` | Mnemosyne |
 | Tado token | `/mnt/codex/tado-exporter/` | Mnemosyne |
 | Docker data root | `/mnt/codex/docker/` | Mnemosyne |
