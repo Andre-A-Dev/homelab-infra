@@ -98,22 +98,19 @@ print_row() {
 }
 
 # =============================================================================
-# get_compose_path CONTAINER_NAME
-# Returns the docker-compose.yml path for a container via Docker labels.
-# Docker Compose sets com.docker.compose.project.working_dir on every
-# container it manages — this is the stack directory.
-# Returns empty string for containers not managed by Compose.
+# get_compose_info CONTAINER_NAME
+# Prints two lines: compose working dir path and service name.
+# Docker Compose sets these labels on every container it manages:
+#   com.docker.compose.project.working_dir  → stack directory
+#   com.docker.compose.service              → service name within the stack
+# Returns empty lines for containers not managed by Compose.
 # =============================================================================
-get_compose_path() {
+get_compose_info() {
     local container="$1"
-    local workdir
-    workdir=$(docker inspect "$container" \
-        --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' \
-        2>/dev/null)
-
-    if [[ -n "$workdir" ]]; then
-        echo "${workdir}/docker-compose.yml"
-    fi
+    docker inspect "$container" \
+        --format '{{index .Config.Labels "com.docker.compose.project.working_dir"}}
+{{index .Config.Labels "com.docker.compose.service"}}' \
+        2>/dev/null
 }
 
 # =============================================================================
@@ -204,10 +201,12 @@ check_container() {
         $QUIET || print_row "$name" "$image" "up to date" "$GREEN" "v "
     else
         ((COUNT_UPDATE++)) || true
-        # Store compose path alongside container name for the footer
-        local compose_path
-        compose_path=$(get_compose_path "$name")
-        UPDATES_MAP["$name"]="$compose_path"
+        # Store workdir and service name (colon-separated) for the footer one-liner
+        local compose_info workdir service_name
+        compose_info=$(get_compose_info "$name")
+        workdir=$(echo "$compose_info" | head -1)
+        service_name=$(echo "$compose_info" | tail -1)
+        UPDATES_MAP["$name"]="${workdir}:${service_name}"
 
         # Always show update rows regardless of --quiet
         print_row "$name" "$image" "UPDATE AVAILABLE" "$YELLOW" "^ "
@@ -248,25 +247,40 @@ print_footer() {
 
     if [[ ${#UPDATES_MAP[@]} -gt 0 ]]; then
         echo
-        echo -e "  ${YELLOW}${BOLD}Updates available:${NC}"
+        echo -e "  ${YELLOW}${BOLD}Updates available — copy-paste to update:${NC}"
+        echo
 
         # Sort container names for consistent output
         local sorted_names
         sorted_names=$(printf '%s\n' "${!UPDATES_MAP[@]}" | sort)
 
         while IFS= read -r container; do
-            local compose_path="${UPDATES_MAP[$container]}"
-            if [[ -n "$compose_path" ]]; then
-                printf "  ${YELLOW}^${NC}  %-28s ${DIM}%s${NC}\n" "$container" "$compose_path"
+            local entry="${UPDATES_MAP[$container]}"
+            local workdir="${entry%%:*}"
+            local service="${entry##*:}"
+
+            printf "  ${YELLOW}^${NC}  ${BOLD}%s${NC}\n" "$container"
+
+            if [[ -n "$workdir" && -n "$service" ]]; then
+                # Full one-liner: cd → pull → up → prune
+                printf "     ${DIM}cd %s \\\\\n" "$workdir"
+                printf "       && docker compose pull %s \\\\\n" "$service"
+                printf "       && docker compose up -d %s \\\\\n" "$service"
+                printf "       && docker image prune -f${NC}\n"
+            elif [[ -n "$workdir" ]]; then
+                # Compose-managed but service label missing — generic fallback
+                printf "     ${DIM}cd %s \\\\\n" "$workdir"
+                printf "       && docker compose pull \\\\\n"
+                printf "       && docker compose up -d \\\\\n"
+                printf "       && docker image prune -f${NC}\n"
             else
-                printf "  ${YELLOW}^${NC}  %s\n" "$container"
+                # Not Compose-managed — no automated update path
+                printf "     ${DIM}(not managed by Compose — update manually)${NC}\n"
             fi
+            echo
         done <<< "$sorted_names"
 
         echo
-        echo -e "  ${DIM}Update one service:${NC}"
-        echo -e "  ${DIM}  cd <path above>  →  remove /docker-compose.yml${NC}"
-        echo -e "  ${DIM}  docker compose pull <service> && docker compose up -d <service>${NC}"
         echo -e "  ${DIM}  docker image prune -f${NC}"
     fi
     echo
