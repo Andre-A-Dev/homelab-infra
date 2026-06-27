@@ -2,10 +2,13 @@
 
 No auto-updates. The philosophy is: get notified, review the changelog, update deliberately. A silent breaking update to Vaultwarden or Caddy at 2 AM is not acceptable.
 
-Two tools handle this:
+Three tools handle this:
 
-- **Diun** — monitors Docker images, sends a push notification when a new image is available
-- **apticron** — monitors apt packages, sends an email when system updates are available
+- **Diun** -- monitors Docker images, sends a push notification when a new image is available
+- **apticron** -- monitors apt packages, sends an email when system updates are available
+- **check-container-updates.sh** -- supplementary script that writes container update state as Prometheus metrics via the textfile collector, making update availability visible in Grafana alongside service health
+
+Alertmanager handles a separate class of notifications: infrastructure alerts (disk space, service down, heating pump faults) routed from Prometheus to ntfy topics. These are operational alerts, not update notifications.
 
 ---
 
@@ -14,7 +17,9 @@ Two tools handle this:
 ```
 Mnemosyne:
   new Docker image   ->  Diun  ->  ntfy (push)  ->  Android
+  container state    ->  check-container-updates.sh  ->  textfile collector  ->  Grafana
   apt packages       ->  apticron  ->  email
+  firing alerts      ->  Prometheus  ->  Alertmanager  ->  ntfy (push)  ->  Android
 
 Boreas / Zephyros:
   apt packages       ->  apticron  ->  email
@@ -23,11 +28,11 @@ Boreas / Zephyros:
 
 ---
 
-## Diun — Docker image update notifications
+## Diun -- Docker image update notifications
 
 Diun watches all running containers and checks their registries for newer images. When a new image is found, it sends a notification via ntfy.
 
-The watch schedule is set to weekly (Monday 08:00) — daily would generate too much noise.
+The watch schedule is set to weekly (Monday 08:00) -- daily would generate too much noise.
 
 `WATCHBYDEFAULT=true` covers all containers automatically without needing to label each one individually.
 
@@ -73,11 +78,11 @@ docker logs diun -f
 
 ---
 
-## ntfy — push notifications
+## ntfy -- push notifications
 
 ntfy is a minimal pub/sub push service. Sending a notification is a single `curl` call. The Android app receives it like a normal system push notification.
 
-The public `ntfy.sh` instance works without any setup. The topic name acts as a password — treat it like one. Use a random string, not something guessable like `mnemosyne-updates`.
+The public `ntfy.sh` instance works without any setup. The topic name acts as a password -- treat it like one. Use a random string, not something guessable like `mnemosyne-updates`.
 
 ```bash
 # Send a test notification
@@ -97,9 +102,9 @@ curl \
 
 ---
 
-## apticron — system package update notifications
+## apticron -- system package update notifications
 
-apticron runs daily, checks for available apt upgrades, and sends an email with the full package list and changelogs when updates are found. No output means no updates — not an error.
+apticron runs daily, checks for available apt upgrades, and sends an email with the full package list and changelogs when updates are found. No output means no updates -- not an error.
 
 ### Installation
 
@@ -118,7 +123,7 @@ EMAIL="your@email.com"
 NOTIFY_NO_UPDATES="0"    # only notify when updates are available
 ```
 
-### msmtp — SMTP relay
+### msmtp -- SMTP relay
 
 apticron uses the system MTA to send mail. `msmtp` is the lightest option, forwarding via an external SMTP account.
 
@@ -142,18 +147,18 @@ account default : smtp
 ```
 
 ```bash
-chmod 600 ~/.msmtprc                        # required — msmtp refuses to run otherwise
+chmod 600 ~/.msmtprc                        # required -- msmtp refuses to run otherwise
 
 sudo touch /var/log/msmtp.log
 sudo chown $(whoami):$(whoami) /var/log/msmtp.log
 
-# apticron runs as root — it needs its own copy
+# apticron runs as root -- it needs its own copy
 sudo cp ~/.msmtprc /etc/msmtprc
 sudo chmod 600 /etc/msmtprc
 
 # Test
 echo "Test from Mnemosyne" | msmtp your@email.com
-sudo apticron    # manual run — sends mail only if updates are available
+sudo apticron    # manual run -- sends mail only if updates are available
 ```
 
 If using Gmail: a regular password is rejected. Enable 2FA and generate an App Password at `myaccount.google.com/apppasswords`. Use that 16-character code in `password`.
@@ -192,7 +197,7 @@ See the [Runbook](Runbook) for the full update procedure per stack.
 |---|---|---|
 | Diun sends no notification | Wrong topic name | Check `DIUN_NOTIF_NTFY_TOPIC` in `.env` |
 | Diun finds no updates despite new image | `latest` tag cached | `docker exec diun diun image list` shows current state |
-| apticron sends no mail | No updates available | `apt list --upgradable` — empty list is correct |
+| apticron sends no mail | No updates available | `apt list --upgradable` -- empty list is correct |
 | apticron sends no mail | msmtp not configured | Send a test mail manually: `echo test \| msmtp your@email.com` |
 | msmtp: `authentication failed` | Wrong password or not an app password | Generate an app password, not the account password |
 | msmtp: `contains secrets and therefore must have...` | File permissions too open | `chmod 600 ~/.msmtprc` |

@@ -8,7 +8,7 @@ Infrastructure-as-code for a privacy-first Raspberry Pi homelab. Self-hosted alt
 
 | Host | Device | Role |
 |---|---|---|
-| **Mnemosyne** | Raspberry Pi 5 (8 GB, arm64) | Primary server — all Docker stacks |
+| **Mnemosyne** | Raspberry Pi 5 (8 GB, arm64) | Primary server -- all Docker stacks |
 | **Boreas** | Raspberry Pi 3B | DNS + network services (home) |
 | **Zephyros** | Raspberry Pi 3B+ | DNS + reverse proxy (secondary location) |
 | **Hephaestus** | Raspberry Pi 3B | Viessmann heating integration |
@@ -19,15 +19,18 @@ Infrastructure-as-code for a privacy-first Raspberry Pi homelab. Self-hosted alt
 ## Services at a glance
 
 **Externally accessible**
-- [Nextcloud](https://cloud.yourdomain.dedyn.io) — file sync and sharing
-- [Ghost](https://blog.yourdomain.dedyn.io) — public blog
+- [Nextcloud](https://cloud.yourdomain.dedyn.io) -- file sync and sharing
+- [Ghost](https://blog.yourdomain.dedyn.io) -- public blog
 
 **Internal (LAN + Tailscale)**
-- Vaultwarden — password manager
-- Immich — photo management
-- Grafana / Prometheus — monitoring
-- Calibre-Web + KOSync — ebook library
-- Gitea — self-hosted Git
+- Vaultwarden -- password manager
+- Immich -- photo management
+- Grafana / Prometheus / Alertmanager -- monitoring
+- Calibre-Web + KOSync -- ebook library
+- Gitea -- self-hosted Git
+- Ghostwrite / GhostProxy -- writing tools
+- Wakapi -- coding time tracker
+- Jobiris -- job board monitor
 
 All internal services run behind Caddy with an internal CA. No plaintext secrets in tracked files.
 
@@ -47,13 +50,13 @@ All internal services run behind Caddy with an internal CA. No plaintext secrets
 
 ```
 homelab-infra/
+├── shared/             # Multi-host scripts, hostname-dispatched
 ├── mnemosyne/          # Docker stacks, scripts, systemd units
-├── boreas/             # Pi-hole exporter, Caddy (parents network)
+├── boreas/             # Pi-hole exporter
 ├── zephyros/           # Pi-hole exporter, Caddy reverse proxy
 ├── hephaestus/         # vcontrold, Viessmann exporter, Flask API
 ├── astraeus/           # Windows diagnostics scripts
-├── astraeus_nx/        # CachyOS dotfiles, SSH config
-└── scripts/            # Audit and export tooling
+└── astraeus_nx/        # CachyOS dotfiles, SSH config
 ```
 
 ---

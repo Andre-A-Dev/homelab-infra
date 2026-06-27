@@ -1,6 +1,6 @@
 # Viessmann Heating Integration via Optolink
 
-Local integration of a Viessmann oil boiler into a Prometheus/Grafana monitoring stack — no cloud, no subscription, no Vitoconnect required.
+Local integration of a Viessmann oil boiler into a Prometheus/Grafana monitoring stack -- no cloud, no subscription, no Vitoconnect required.
 
 The setup uses a USB Optolink adapter connected to the boiler's infrared interface, `vcontrold` as the protocol daemon, and a shell script exporter that writes Prometheus metrics via the Node Exporter textfile collector. A Flask API enables read/write access to heating parameters directly from Grafana.
 
@@ -40,7 +40,7 @@ Vitotronic KW2
 
 ## Hardware
 
-**Adapter:** Viessmann USB Optolink cable (part number 7438374). The adapter plugs into the infrared port on the boiler's front panel — no opening the unit, no electrical connection.
+**Adapter:** Viessmann USB Optolink cable (part number 7438374). The adapter plugs into the infrared port on the boiler's front panel -- no opening the unit, no electrical connection.
 
 **Alternative:** Community-built optolink adapters (~50 €) work identically for KW protocol devices and are well-tested.
 
@@ -57,16 +57,16 @@ dmesg | grep ch341
 
 The Vitotronic 200 KW2 uses the older KW serial protocol, not the bidirectional P protocol of newer controllers. Key implications:
 
-- Each data point is queried **sequentially** — a full exporter run takes ~30 seconds
+- Each data point is queried **sequentially** -- a full exporter run takes ~30 seconds
 - Prometheus scrape interval is set to 60s accordingly
 - Write commands require a threading lock to avoid conflicts with the exporter cron
-- Timer schedules (`getTimerM1Mo`, etc.) are available but not queried by default — they would push a single run to several minutes
+- Timer schedules (`getTimerM1Mo`, etc.) are available but not queried by default -- they would push a single run to several minutes
 
 ---
 
 ## vcontrold installation
 
-`vcontrold` is not in the Debian repositories — build from source:
+`vcontrold` is not in the Debian repositories -- build from source:
 
 ```bash
 sudo apt install -y build-essential cmake libxml2-dev
@@ -87,12 +87,12 @@ sudo make install
 ```bash
 sudo mkdir -p /etc/vcontrold
 
-# Use KW protocol configs — not the 300/ directory (that's for P protocol)
+# Use KW protocol configs -- not the 300/ directory (that's for P protocol)
 sudo cp ~/vcontrold/xml/kw/vcontrold.xml /etc/vcontrold/
 sudo cp ~/vcontrold/xml/kw/vito.xml /etc/vcontrold/
 ```
 
-Edit `/etc/vcontrold/vcontrold.xml` — two changes required:
+Edit `/etc/vcontrold/vcontrold.xml` -- two changes required:
 
 ```xml
 <!-- Serial device -->
@@ -144,7 +144,7 @@ vclient -h 127.0.0.1:3002 -c getDevType
 vclient -h 127.0.0.1:3002 -c "getTempA,getTempKist,getBetriebArtM1"
 ```
 
-The `-j` flag outputs all values numerically. Avoid it for enum types like `getBetriebArtM1` — they return raw bytes (`0.0`) instead of readable strings (`H+WW`).
+The `-j` flag outputs all values numerically. Avoid it for enum types like `getBetriebArtM1` -- they return raw bytes (`0.0`) instead of readable strings (`H+WW`).
 
 ---
 
@@ -188,7 +188,9 @@ Cronjob (every minute):
 * * * * * /usr/local/bin/viessmann-exporter.sh
 ```
 
-Prometheus scrapes Node Exporter on Hephaestus at 60s intervals — matching the ~30s exporter runtime with a safety margin.
+Prometheus scrapes Node Exporter on Hephaestus at 60s intervals -- matching the ~30s exporter runtime with a safety margin.
+
+Alert rules for the heating circuit pump (`pump-alerts.yml` in the monitoring stack) fire when `getPumpeStatusM1` reports the pump as inactive during heating mode. Alerts route through Alertmanager to a dedicated ntfy topic separate from general infrastructure alerts.
 
 ---
 
@@ -208,7 +210,7 @@ sudo systemctl stop viessmann-api
 sudo systemctl disable viessmann-api
 ```
 
-Monitoring via the textfile collector runs independently — observability is never tied to write-access infrastructure.
+Monitoring via the textfile collector runs independently -- observability is never tied to write-access infrastructure.
 
 ### Endpoints
 
@@ -243,15 +245,15 @@ curl -s -X POST https://viessmann.home/set/betriebsart \
 
 vcontrold accepts only one connection at a time. The exporter cron holds the connection for ~30 seconds every minute.
 
-- Set commands use a `threading.Lock` — a second parallel request is immediately rejected with `"Another command is already running"`
+- Set commands use a `threading.Lock` -- a second parallel request is immediately rejected with `"Another command is already running"`
 - On failure, the API retries up to 3 times with 12s intervals (covers the exporter window)
-- Read requests (`/status`) run without a lock — they are non-critical
+- Read requests (`/status`) run without a lock -- they are non-critical
 
 ### Heating curve adjustment vs. direct mode switching
 
 The KW2 state machine does not always respond predictably to remote `setBetriebArtM1` commands. The heating circuit pump may not activate without a reset cycle. For this reason the recommended approach is:
 
-**Preferred:** adjust `Neigung` and `Niveau` — these are passive register values the KW2 reads on its next cycle, no state transition required.
+**Preferred:** adjust `Neigung` and `Niveau` -- these are passive register values the KW2 reads on its next cycle, no state transition required.
 
 **Avoid in normal operation:** direct mode switching via `setBetriebArtM1`.
 
@@ -266,7 +268,7 @@ vclient -h 127.0.0.1:3002 -c "setBetriebArtM1 H+WW"
 
 ### Token authentication
 
-Caddy injects the API token for all requests to `viessmann.home` — the token is never visible in the browser or in Grafana panel HTML:
+Caddy injects the API token for all requests to `viessmann.home` -- the token is never visible in the browser or in Grafana panel HTML:
 
 ```caddy
 viessmann.home {
@@ -281,7 +283,7 @@ viessmann.home {
 
 ## Grafana integration
 
-Four HTML panels in the heating dashboard — type **Text**, mode **HTML**.
+Four HTML panels in the heating dashboard -- type **Text**, mode **HTML**.
 
 | Panel | Function |
 |---|---|
@@ -298,7 +300,7 @@ GF_PANELS_DISABLE_SANITIZE_HTML=true
 
 All panels call `/status` on load to populate input fields with current values. The set buttons are disabled for the duration of each request to prevent duplicate submissions.
 
-After setting a value, the API reads it back from the controller (`vclient_get`) — the displayed value is the one actually confirmed by the KW2.
+After setting a value, the API reads it back from the controller (`vclient_get`) -- the displayed value is the one actually confirmed by the KW2.
 
 ---
 
@@ -311,7 +313,7 @@ After setting a value, the API reads it back from the controller (`vclient_get`)
 | vcontrold won't start after reboot | USB adapter not detected in time | Add `After=dev-ttyUSB0.device` + `Requires=dev-ttyUSB0.device` to unit file |
 | Metrics empty, `bc: command not found` | bc not installed | `sudo apt install bc` |
 | `Unauthorized` in Grafana panel | Caddy not injecting token | `docker exec caddy env \| grep VIESSMANN` |
-| `Another command is already running` | Two set requests in parallel | Wait — only one set command at a time |
+| `Another command is already running` | Two set requests in parallel | Wait -- only one set command at a time |
 | `vclient error` when setting value | Exporter cron holds the connection | Retry logic handles this automatically (3× with 12s) |
 | `-0.1°C` for flow setpoint | Heating circuit not currently active | Normal behavior during hot water operation |
 | HTTP 400 from API | Value out of range | Neigung: 0.2–3.5, Niveau: -13–13, WW: 40–60°C |

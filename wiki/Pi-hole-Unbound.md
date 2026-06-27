@@ -1,6 +1,6 @@
 # Pi-hole + Unbound
 
-Network-wide DNS filtering and privacy via recursive resolution — without sending every DNS query to Google or Cloudflare.
+Network-wide DNS filtering and privacy via recursive resolution -- without sending every DNS query to Google or Cloudflare.
 
 Pi-hole filters ads and tracking domains for all devices on the network. Unbound resolves DNS queries recursively by querying the authoritative nameservers directly, with no third-party intermediary.
 
@@ -38,10 +38,10 @@ Without Unbound, Pi-hole forwards to an upstream resolver that sees every query.
 curl -sSL https://install.pi-hole.net | bash
 ```
 
-The installer walks through an interactive menu. Set the upstream DNS to Cloudflare (1.1.1.1) for now — it will be replaced by Unbound in the next step. Enable the web interface and logging.
+The installer walks through an interactive menu. Set the upstream DNS to Cloudflare (1.1.1.1) for now -- it will be replaced by Unbound in the next step. Enable the web interface and logging.
 
 ```bash
-# Pi-hole v6 — set admin password
+# Pi-hole v6 -- set admin password
 pihole setpassword
 ```
 
@@ -126,7 +126,7 @@ Point the router's DHCP DNS server at the Pi-hole host IP. All devices on the ne
 
 ### IPv6 DNS
 
-Windows and Android prefer IPv6. If the router advertises an IPv6 DNS server via Router Advertisement, it wins over IPv4 — even if IPv4 is correctly pointing at Pi-hole. Without this step, IPv6 traffic bypasses Pi-hole entirely.
+Windows and Android prefer IPv6. If the router advertises an IPv6 DNS server via Router Advertisement, it wins over IPv4 -- even if IPv4 is correctly pointing at Pi-hole. Without this step, IPv6 traffic bypasses Pi-hole entirely.
 
 Assign a static IPv6 address to the Pi-hole host and configure the router to announce it as the IPv6 DNS server.
 
@@ -190,7 +190,7 @@ dig vault.home @192.168.1.11        # should resolve to 192.168.1.10
 
 If the Pi-hole host goes down and the network loses DNS resolution, restore DNS via the router directly.
 
-**The router admin interface is always reachable by IP** (e.g. `192.168.1.1`) — it does not depend on DNS.
+**The router admin interface is always reachable by IP** (e.g. `192.168.1.1`) -- it does not depend on DNS.
 
 ### IPv4
 

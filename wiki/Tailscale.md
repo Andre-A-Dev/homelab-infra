@@ -1,6 +1,6 @@
 # Tailscale
 
-Tailscale connects all devices into an encrypted WireGuard mesh network without port forwarding or firewall changes. Mnemosyne acts as a subnet router — all home network devices become reachable from anywhere via Tailscale, without needing Tailscale installed on each device.
+Tailscale connects all devices into an encrypted WireGuard mesh network without port forwarding or firewall changes. Mnemosyne acts as a subnet router -- all home network devices become reachable from anywhere via Tailscale, without needing Tailscale installed on each device.
 
 ---
 
@@ -26,7 +26,7 @@ graph LR
         Android["Android"]
         Win["Windows PC"]
     end
-    subgraph home["Home network — 192.168.1.0/24"]
+    subgraph home["Home network -- 192.168.1.0/24"]
         Mnemosyne["Mnemosyne\nSubnet Router"]
         Devices["LAN devices\n(FritzBox, ...)"]
     end
@@ -35,7 +35,7 @@ graph LR
     Mnemosyne -- "normal IP routing" --> Devices
 ```
 
-**Why not WireGuard directly on the FritzBox?** Tailscale establishes peer-to-peer tunnels — traffic goes directly between devices without routing through a central hub. For video streaming use cases this matters significantly. The coordination server (Tailscale's infrastructure) only handles key exchange and NAT traversal; it never sees traffic.
+**Why not WireGuard directly on the FritzBox?** Tailscale establishes peer-to-peer tunnels -- traffic goes directly between devices without routing through a central hub. For video streaming use cases this matters significantly. The coordination server (Tailscale's infrastructure) only handles key exchange and NAT traversal; it never sees traffic.
 
 ---
 
@@ -46,7 +46,7 @@ graph LR
 | Install method | apt (via Tailscale repository) |
 | Service | systemd (`tailscaled.service`) |
 | Subnet Router | `192.168.1.0/24` (advertised by Mnemosyne) |
-| MagicDNS | Disabled — Pi-hole handles DNS |
+| MagicDNS | Disabled -- Pi-hole handles DNS |
 | Free tier | Up to 100 devices, 3 users |
 
 ---
@@ -59,7 +59,7 @@ graph LR
 curl -fsSL https://tailscale.com/install.sh | sh
 ```
 
-This sets up an apt repository — subsequent updates come through `apt upgrade` like any other package.
+This sets up an apt repository -- subsequent updates come through `apt upgrade` like any other package.
 
 ```bash
 tailscale version
@@ -99,7 +99,7 @@ https://login.tailscale.com/admin/machines
 → Mnemosyne → Edit route settings → Approve 192.168.1.0/24
 ```
 
-Without approval in the admin console, `--advertise-routes` is just an announcement — no packets are forwarded.
+Without approval in the admin console, `--advertise-routes` is just an announcement -- no packets are forwarded.
 
 ### Make subnet routing persistent across reboots
 
@@ -135,7 +135,7 @@ Download from [tailscale.com/download/windows](https://tailscale.com/download/wi
 
 ### Android
 
-Install from the Play Store. After connecting, disable battery optimization for the app — Android aggressively kills background services:
+Install from the Play Store. After connecting, disable battery optimization for the app -- Android aggressively kills background services:
 
 ```
 Settings → Apps → Tailscale → Battery → Unrestricted
@@ -176,13 +176,13 @@ Packet flow from Android to a LAN device (`192.168.1.x`):
 1. Android's routing table: `192.168.1.0/24` is reachable via Mnemosyne in the Tailnet
 2. Packet is encrypted and sent peer-to-peer to Mnemosyne (WireGuard)
 3. Mnemosyne decrypts and forwards into the LAN (normal IP routing)
-4. LAN device receives the packet — sees Mnemosyne's LAN IP as source
+4. LAN device receives the packet -- sees Mnemosyne's LAN IP as source
 
 ---
 
 ## Security considerations
 
-All devices in your Tailnet can reach all `192.168.1.x` devices via the subnet router — including the FritzBox admin interface, Pi-hole, Syncthing, and any other internal service. This is intentional for personal use.
+All devices in your Tailnet can reach all `192.168.1.x` devices via the subnet router -- including the FritzBox admin interface, Pi-hole, Syncthing, and any other internal service. This is intentional for personal use.
 
 If you ever add devices belonging to other people, use Tailscale ACLs to restrict which device can reach which:
 
@@ -214,9 +214,9 @@ tailscale set --hostname=mnemosyne  # rename this device
 |---|---|---|
 | LAN device not reachable via Tailscale | Subnet route not approved | Admin console → Mnemosyne → Edit route settings → Approve |
 | Subnet route missing after reboot | `tailscale up` flags not persistent | Set up the systemd oneshot service (see above) |
-| High latency | No direct peer-to-peer tunnel, using DERP relay | `tailscale ping --verbose` — check relay vs. direct |
+| High latency | No direct peer-to-peer tunnel, using DERP relay | `tailscale ping --verbose` -- check relay vs. direct |
 | DNS not resolving in Tailnet | MagicDNS conflict with Pi-hole | Disable MagicDNS, add Pi-hole as global nameserver |
 | `.home` domains not resolving remotely | Pi-hole not set as Tailnet DNS | Add Boreas' Tailscale IP as nameserver in admin console |
 | `tailscale up` asks for re-authentication | State lost or expired | Open the URL in a browser and log in again |
-| Subnet route not visible on clients | IP forwarding not active | `sysctl net.ipv4.ip_forward` — should be `1` |
+| Subnet route not visible on clients | IP forwarding not active | `sysctl net.ipv4.ip_forward` -- should be `1` |
 | Android disconnects in background | Battery optimization | Settings → Apps → Tailscale → Battery → Unrestricted |

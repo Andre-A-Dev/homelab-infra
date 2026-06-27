@@ -1,6 +1,6 @@
 # Workflow
 
-How changes move from a Windows workstation to running containers on Mnemosyne — and how the CI pipeline validates and gates them along the way.
+How changes move from a Windows workstation to running containers on Mnemosyne -- and how the CI pipeline validates and gates them along the way.
 
 ---
 
@@ -23,7 +23,7 @@ flowchart TD
     K -- "timeout / failure" --> L
 ```
 
-The webhook handler and the CI runner operate in parallel on every push. The handler waits for all CI jobs to pass before deploying — if CI fails or times out, the deploy is blocked and a push notification is sent.
+The webhook handler and the CI runner operate in parallel on every push. The handler waits for all CI jobs to pass before deploying -- if CI fails or times out, the deploy is blocked and a push notification is sent.
 
 ---
 
@@ -52,7 +52,7 @@ time="..." level=info event=deploy_finished commit=b179f51 stacks=monitoring dur
 
 ## CI Pipeline: Gitea Act Runner
 
-Three workflows run on every push to `main`:
+Two workflows run on every push to `main`:
 
 | Workflow | What it checks |
 |---|---|
@@ -63,8 +63,8 @@ Three workflows run on every push to `main`:
 
 The drift checker compares each stack's `.env.example` against the variables referenced in `docker-compose.yml`:
 
-- **dead keys** — documented in `.env.example` but not referenced in compose (skipped for stacks using `env_file:`)
-- **missing keys** — referenced in compose but not documented in `.env.example`
+- **dead keys** -- documented in `.env.example` but not referenced in compose (skipped for stacks using `env_file:`)
+- **missing keys** -- referenced in compose but not documented in `.env.example`
 
 Stacks that use `env_file: .env` pass the entire file directly to the container at runtime. Variables don't appear as `${VAR}` references in compose, so the dead-key check is intentionally skipped for those stacks.
 
@@ -145,7 +145,7 @@ git commit -m "backup: add Gitea to rotation"
 git push
 ```
 
-Scripts are active immediately after pull — `/usr/local/bin/backup-services.sh` is a symlink to the repo file. No stack restart needed, no CI gate involved.
+Scripts are active immediately after pull -- `/usr/local/bin/backup-services.sh` is a symlink to the repo file. No stack restart needed, no CI gate involved.
 
 ### Add a new environment variable
 
@@ -161,7 +161,7 @@ git commit -m "<stack>: add XY environment variable"
 git push
 ```
 
-Always set the `.env` value on Mnemosyne **before** pushing. The webhook restarts the stack immediately after CI passes — if the variable is missing at that point, the container starts without it.
+Always set the `.env` value on Mnemosyne **before** pushing. The webhook restarts the stack immediately after CI passes -- if the variable is missing at that point, the container starts without it.
 
 ### Add a new stack
 
@@ -213,7 +213,7 @@ Requires Node.js, which is not in the Alpine runner image. Workflows use a manua
 **No repository secrets on Gitea Free**
 The secrets UI returns 404 on Gitea Free. Tokens are passed as environment variables via the runner's `.env` file and `env_file` in `docker-compose.yml`.
 
-**Alpine runner — no `apt-get`**
+**Alpine runner -- no `apt-get`**
 The `gitea/act_runner` image is Alpine-based. Use `apk` to install packages. The first `apk` call requires `--no-check-certificate` because the CA bundle is not yet present.
 
 ---
@@ -239,4 +239,4 @@ curl -sL -H "Authorization: token <token>" \
 | `unregistered runner` restart loop | `.runner` missing or corrupt | Delete `.runner`, generate new token |
 | `SSL certificate not trusted` on `git clone` | CA not mounted or wrong permissions | `chmod 644 /mnt/codex/gitea/runner/ca.crt` |
 | `apk: TLS not trusted` | Alpine has no CA bundle yet | `apk add --no-check-certificate ca-certificates && update-ca-certificates` |
-| env-drift false positives | `env_file:` stack — vars not referenced in compose | Expected — dead-key check skipped for `env_file` stacks |
+| env-drift false positives | `env_file:` stack -- vars not referenced in compose | Expected -- dead-key check skipped for `env_file` stacks |
