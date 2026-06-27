@@ -267,6 +267,27 @@ services:
     networks:
       - monitoring
 
+  # -- Midea Exporter ----------------------------------------------------------
+  midea-exporter:
+    build: ./midea_exporter
+    container_name: midea-exporter
+    environment:
+      - MIDEA_IP=192.168.1.x
+      - MIDEA_REGION=DE
+      # optional, nur falls die DE-Built-in-Creds nicht reichen:
+      # - MIDEA_ACCOUNT_EMAIL=${MIDEA_ACCOUNT_EMAIL}
+      # - MIDEA_ACCOUNT_PASSWORD=${MIDEA_ACCOUNT_PASSWORD}
+      - MIDEA_DEVICE_NAME=portasplit
+      - MIDEA_CACHE=/data/device_creds.json
+      - EXPORTER_PORT=9116
+    volumes:
+      - /mnt/codex/midea-exporter:/data
+    ports:
+      - "9116:9116"
+    restart: unless-stopped
+    networks:
+      - monitoring
+
 # -- Networks -----------------------------------------------------------------------
 
 networks:
