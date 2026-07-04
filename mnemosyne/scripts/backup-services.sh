@@ -9,6 +9,12 @@ MIN_FREE_GB=40                    # Abort if less than this many GB are free bef
 MAX_USAGE_PERCENT=85              # Abort if disk usage exceeds this % after cleanup
 LOG="/var/log/backup-services.log"
 
+# Offsite target (Hetzner Storage Box via rclone crypt remote).
+# rclone sync mirrors $BACKUP_DIR onto the remote, including deletions —
+# this means offsite retention automatically follows local retention
+# (RETENTION_DAYS above) without needing separate pruning logic.
+OFFSITE_REMOTE="hetzner-crypt:"
+
 # Tracks the last successful backup timestamp per service.
 # Stored on the local filesystem (not the external SSD) so it's always available.
 # Used to skip backups when no files have changed since the last run.
@@ -22,6 +28,7 @@ FORCE=false
 DRY_RUN=false
 NO_CLEANUP=false
 OVERWRITE=false
+NO_OFFSITE=false
 ONLY=""          # If set, only the named service will be backed up
 
 # ── Duration tracking ──────────────────────────────────────────────────────────
@@ -50,6 +57,7 @@ for arg in "$@"; do
     --dry-run)         DRY_RUN=true ;;
     --no-cleanup)      NO_CLEANUP=true ;;
     --overwrite)       OVERWRITE=true ;;
+    --no-offsite)      NO_OFFSITE=true ;;
     --only=*)          ONLY="${arg#--only=}" ;;
     --retention=*)     RETENTION_DAYS="${arg#--retention=}" ;;
     *)
@@ -60,6 +68,7 @@ for arg in "$@"; do
       echo "  --dry-run            Show what would run without writing anything"
       echo "  --no-cleanup         Skip the retention cleanup step"
       echo "  --overwrite          Overwrite today's backup if it already exists"
+      echo "  --no-offsite         Skip the offsite sync to Hetzner Storage Box"
       echo "  --only=<service>     Back up a single service only"
       echo "                       Services: vaultwarden, caddy, calibre, calibre-web,"
       echo "                                 kosync, syncthing, aegis, gitea, nextcloud,"
@@ -90,7 +99,7 @@ BOLD='\033[1m'
 RESET='\033[0m'
 
 # ── Step counter ───────────────────────────────────────────────────────────────
-TOTAL_STEPS=13
+TOTAL_STEPS=14
 CURRENT_STEP=0
 ERRORS=0
 
@@ -450,6 +459,7 @@ log "  Backup directory: $BACKUP_DIR/$DATE"
 [ "$DRY_RUN" = true ]    && echo -e "  ${CYAN}⚠ --dry-run: no data will be written${RESET}"
 [ "$NO_CLEANUP" = true ] && echo -e "  ${CYAN}⚠ --no-cleanup: retention cleanup skipped${RESET}"
 [ "$OVERWRITE" = true ]  && echo -e "  ${YELLOW}⚠ --overwrite: existing backup for $DATE will be replaced${RESET}"
+[ "$NO_OFFSITE" = true ] && echo -e "  ${CYAN}⚠ --no-offsite: offsite sync to Hetzner will be skipped${RESET}"
 [ -n "$ONLY" ]           && echo -e "  ${CYAN}⚠ --only=${ONLY}: all other services will be skipped${RESET}"
 log "=== Backup started: $(date) ==="
 
@@ -683,6 +693,41 @@ else
 fi
 
 
+# ── OFFSITE ────────────────────────────────────────────────────────────────────
+# Mirrors the entire $BACKUP_DIR (all retained days) to the Hetzner Storage Box
+# through an rclone crypt remote. Using `sync` rather than `copy` means files
+# pruned locally by the retention cleanup above are also removed offsite —
+# one retention policy, not two to keep in sync by hand.
+OFFSITE_START=0
+OFFSITE_DURATION=0
+OFFSITE_EXIT=0
+
+step "Offsite sync (Hetzner Storage Box)"
+CURRENT_SERVICE="offsite"
+OFFSITE_START=$(date +%s)
+
+if [ "$NO_OFFSITE" = true ]; then
+  skipped_service "Offsite sync"
+  STEP_STATUSES["offsite"]=2
+elif ! command -v rclone >/dev/null 2>&1; then
+  fail "Offsite sync failed — rclone not installed"
+  OFFSITE_EXIT=1
+else
+  run rclone sync "$BACKUP_DIR" "$OFFSITE_REMOTE" \
+    --exclude ".Trash-*/**" \
+    -v
+  OFFSITE_EXIT=$?
+  if [ "$OFFSITE_EXIT" -eq 0 ]; then
+    ok "Offsite sync completed"
+    mkdir -p "$TIMESTAMP_DIR"
+    touch "$TIMESTAMP_DIR/offsite-success"
+  else
+    fail "Offsite sync failed (exit: $OFFSITE_EXIT) — local backup is still intact"
+  fi
+fi
+OFFSITE_DURATION=$(( $(date +%s) - OFFSITE_START ))
+
+
 # ── CLEANUP — second pass to catch today's run pushing usage over threshold ───
 # The early cleanup removed old dirs; this final find is a safety net only.
 step "Cleanup — verify retention (${RETENTION_DAYS}-day window)"
@@ -762,6 +807,19 @@ DURATION=$((END_TIME - START_TIME))
   echo "# HELP backup_skipped_total Number of services skipped in the last run (no changes detected)"
   echo "# TYPE backup_skipped_total gauge"
   echo "backup_skipped_total $SKIPPED_TOTAL"
+  echo "# HELP backup_offsite_last_exit_code Exit code of the last offsite rclone sync (0 = success)"
+  echo "# TYPE backup_offsite_last_exit_code gauge"
+  echo "backup_offsite_last_exit_code $OFFSITE_EXIT"
+  echo "# HELP backup_offsite_duration_seconds Duration of the last offsite rclone sync in seconds"
+  echo "# TYPE backup_offsite_duration_seconds gauge"
+  echo "backup_offsite_duration_seconds $OFFSITE_DURATION"
+  echo "# HELP backup_offsite_last_success_timestamp Unix timestamp of the last successful offsite sync"
+  echo "# TYPE backup_offsite_last_success_timestamp gauge"
+  if [ -f "$TIMESTAMP_DIR/offsite-success" ]; then
+    echo "backup_offsite_last_success_timestamp $(stat -c%Y "$TIMESTAMP_DIR/offsite-success")"
+  else
+    echo "backup_offsite_last_success_timestamp 0"
+  fi
   echo "# HELP backup_step_duration_seconds Duration of each backup step in seconds"
   echo "# TYPE backup_step_duration_seconds gauge"
   for service in "${!STEP_DURATIONS[@]}"; do
