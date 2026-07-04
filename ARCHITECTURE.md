@@ -226,6 +226,18 @@ The backup SSD is formatted as exFAT, which does not support hardlinks or symlin
 
 Restore procedures are documented and tested. A backup that has never been restored is not a backup.
 
+**Offsite: Hetzner Storage Box, not a general-purpose cloud**
+
+The offsite copy exists to survive a scenario the local backup disk cannot: theft, fire, or any event that takes Mnemosyne and the WD My Passport out simultaneously, since both live in the same room. A Storage Box was chosen over Backblaze B2 or a consumer cloud drive for three reasons: it is billed flat per TB rather than per API call or egress, which matters for a script that re-syncs the same backup set daily; it speaks plain SFTP, so `rclone` needs no vendor SDK or OAuth flow, only an SSH key; and it is hosted in Germany/Finland, which matters for the same data-sovereignty reasoning that rules out cloud dependency elsewhere in this document.
+
+**Why `rclone crypt`, not provider-side encryption**
+
+Hetzner does not see plaintext filenames or contents. An `rclone crypt` remote sits between the plain SFTP remote and the sync target — files are encrypted locally before the SFTP upload, using a password stored in Vaultwarden rather than in the `rclone` config file itself. This means a compromised Hetzner account (or a subpoena, or a misconfigured access grant) exposes only ciphertext. The tradeoff is that the crypt password becomes a second single point of failure alongside the backup itself: lose it, and the offsite copy is unrecoverable even with full SSH access to the Storage Box. It is stored in exactly one place outside the local system, and nowhere else.
+
+**Why the offsite sync is a step inside `backup-services.sh`, not a separate script**
+
+An earlier draft of this design used a standalone `backup-offsite.sh` on its own weekly cron schedule. That was reverted in favor of one additional step inside the existing script, running with the same daily cadence as the rest of the backup. The existing script already owns retention, logging, and Prometheus metrics — duplicating that scaffolding for a second script would be exactly the kind of complexity this homelab's guiding principle warns against. `rclone sync` (not `copy`) mirrors deletions from the local retention cleanup to the offsite target automatically, so there is one retention policy, not two to keep in sync by hand.
+
 ---
 
 ## Viessmann Heating Integration: Optolink over Vitoconnect

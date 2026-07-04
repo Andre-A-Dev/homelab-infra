@@ -244,4 +244,4 @@ Grafana dashboard JSON exports are versioned under `mnemosyne/stacks/monitoring/
 
 ## Backup
 
-A weekly backup script runs on Sundays at 04:00 on Mnemosyne and writes to a WD My Passport USB SSD (UUID `XXXX-XXXX`, mounted at `/mnt/backup`). Covers all Docker volumes and host-mounted data paths. Run manually with `sudo /usr/local/bin/backup-services.sh`.
+A daily backup script runs at 02:00 on Mnemosyne and writes to a WD My Passport USB SSD (UUID `XXXX-XXXX`, mounted at `/mnt/backup`). Covers all Docker volumes and host-mounted data paths, following the 3-2-1 rule (local disk + offsite copy). An integrated step syncs the backup directory to an offsite target (Hetzner Storage Box) via `rclone` through a `crypt` remote — data is encrypted client-side before it leaves the host, so the offsite provider only ever sees ciphertext. Run manually with `sudo /usr/local/bin/backup-services.sh`; skip the offsite step with `--no-offsite` if bandwidth needs to be reserved for something else.

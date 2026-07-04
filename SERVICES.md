@@ -147,7 +147,10 @@ Devices on the remote's network without Tailscale can access these `.home` servi
 | Tado token | `/mnt/codex/tado-exporter/` | Mnemosyne |
 | Docker data root | `/mnt/codex/docker/` | Mnemosyne |
 | containerd root | `/mnt/codex/containerd/` | Mnemosyne |
-| Backup target | `/mnt/backup/` | Mnemosyne (UUID `XXXX-XXXX`) |
+| Backup target (local) | `/mnt/backup/` | Mnemosyne (UUID `XXXX-XXXX`) |
+| Backup target (offsite) | Hetzner Storage Box, via `rclone` remote `hetzner-crypt:` (SFTP + client-side encryption) | External — Germany/Finland |
+| rclone config | `~/.config/rclone/rclone.conf` | Mnemosyne |
+| Offsite SSH key | `~/.ssh/hetzner_storagebox` (no passphrase — used by unattended cron) | Mnemosyne |
 | vcontrold config | `/etc/vcontrold/` | Hephaestus |
 | Viessmann metrics | `/var/lib/node_exporter/textfile_collector/viessmann.prom` | Hephaestus |
 | Viessmann change log | `/var/log/viessmann-control.log.json` | Hephaestus |

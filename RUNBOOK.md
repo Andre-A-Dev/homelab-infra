@@ -78,6 +78,56 @@ Force all services regardless of change detection:
 sudo /usr/local/bin/backup-services.sh --force --overwrite
 ```
 
+Skip the offsite sync for this run only (e.g. bandwidth needed elsewhere):
+
+```bash
+sudo /usr/local/bin/backup-services.sh --no-offsite
+```
+
+---
+
+## Check Offsite Sync (Hetzner Storage Box)
+
+Confirm the last offsite sync succeeded:
+
+```bash
+grep "Offsite sync" /var/log/backup-services.log | tail -5
+```
+
+Check via Prometheus metrics (non-zero exit code or an old timestamp = problem):
+
+```bash
+cat /var/lib/node_exporter/textfile_collector/backup.prom | grep offsite
+```
+
+List what's currently on the remote (decrypted view through the crypt remote):
+
+```bash
+rclone lsf hetzner-crypt:
+```
+
+Run the sync manually, outside the full backup script (useful after fixing a connectivity issue):
+
+```bash
+rclone sync /mnt/backup hetzner-crypt: -v
+```
+
+For a large first sync or any run likely to outlast the SSH session, use `tmux` rather than backgrounding with `disown` — it can be reattached to check progress instead of running blind:
+
+```bash
+tmux new -s offsite-sync
+rclone sync /mnt/backup hetzner-crypt: -v
+# Ctrl+B, D to detach — reattach later with: tmux attach -t offsite-sync
+```
+
+Verify encryption is actually active — file and directory names on the Hetzner side must look like random characters, never plaintext service names. Check via the Hetzner Robot file browser, or:
+
+```bash
+rclone lsf hetzner-sftp:mnemosyne-backup
+```
+
+If this shows real filenames instead of ciphertext, the sync bypassed the crypt remote and went straight to `hetzner-sftp:` — stop and check `OFFSITE_REMOTE` in the script before running again.
+
 ---
 
 ## Verify Backup
