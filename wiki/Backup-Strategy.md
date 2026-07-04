@@ -55,6 +55,12 @@ Replace SSD, reinstall OS, restore all services from backup. Expected downtime: 
 
 New Pi, reinstall OS, restore all services from backup. Expected downtime: ~1 day (delivery time).
 
+**If the local backup drive is lost along with the Pi** (theft, fire, water damage -- anything that takes out one room), only the offsite copy survives, since the backup SSD sits physically next to Mnemosyne. This is the actual scenario the offsite layer exists for, not drive failure alone. Restore path: pull the backup set down from the Storage Box onto a new drive first, then follow the normal restore procedure.
+
+```bash
+rclone sync hetzner-crypt: /mnt/backup -v
+```
+
 ---
 
 ## Backup Layers
@@ -70,9 +76,30 @@ echo 'NEXTCLOUD_DB_PW="your_password"' | sudo tee /etc/backup-secrets.conf
 sudo chmod 600 /etc/backup-secrets.conf
 ```
 
-### Layer 2 -- Offsite backup (weekly, automated, Sunday 04:00)
+### Layer 2 -- Offsite backup (daily, integrated step)
 
-`rclone` copies the latest backup directory to a cloud storage target (encrypted). This satisfies the "1 offsite copy" requirement of 3-2-1.
+An earlier version of this design used a standalone offsite script on its own weekly cron schedule. That was dropped in favor of one additional step inside `backup-services.sh` itself, running with the same daily cadence as the rest of the backup -- the existing script already owns retention, logging, and Prometheus metrics, and duplicating that scaffolding for a second script would be needless complexity.
+
+The target is a Hetzner Storage Box (1 TB tier), chosen over a general-purpose cloud drive for three reasons: flat per-TB billing rather than per-API-call, which matters for a set that gets fully re-synced every day; plain SFTP support, so `rclone` needs only an SSH key rather than an OAuth flow or vendor SDK; and an EU hosting location, consistent with the data-sovereignty reasoning applied elsewhere in this stack.
+
+Encryption happens client-side, before anything leaves the host. `rclone` is configured with two chained remotes:
+
+- A plain `sftp` remote authenticating via SSH key (no passphrase -- the sync runs unattended from cron)
+- A `crypt` remote layered on top, encrypting both file contents and filenames
+
+The Storage Box provider never sees plaintext data or filenames -- only the crypt password, stored in Vaultwarden and nowhere else, can decrypt it. `rclone sync` (not `copy`) mirrors deletions from the local retention cleanup to the offsite target automatically, so there is one retention policy rather than two to keep in sync by hand.
+
+```bash
+rclone sync /mnt/backup hetzner-crypt: -v
+```
+
+Verify encryption is active by listing the underlying SFTP remote directly -- filenames must look like random characters, never the real service names:
+
+```bash
+rclone lsf hetzner-sftp:mnemosyne-backup
+```
+
+If plaintext filenames show up here, the sync bypassed the crypt remote and went straight to SFTP -- stop and check the configured remote before running again.
 
 ### Layer 3 -- System image (monthly, manual)
 
@@ -99,7 +126,7 @@ exFAT does not support hardlinks or symlinks. The backup script uses a `has_chan
 |---|---|---|---|
 | Data backup (script) | Daily | 02:00 | Backup SSD |
 | Disk space check (ntfy alert) | Daily | 08:00 | -- |
-| Offsite backup (rclone) | Weekly | Sunday 04:00 | Cloud |
+| Offsite backup (rclone, integrated step) | Daily | 02:00 (part of backup-services.sh) | Hetzner Storage Box |
 | System image (rpi-clone) | Monthly | Manual | Second SSD |
 | Log review | Weekly | Manual | -- |
 | Restore test | Quarterly | Manual | -- |
