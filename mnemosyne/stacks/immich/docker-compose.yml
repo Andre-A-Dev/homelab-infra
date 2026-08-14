@@ -47,9 +47,11 @@ services:
       retries: 5
 
   database:
-    # pgvecto.rs extension required by Immich for vector similarity search (face/CLIP)
-    # Service name must be "database" — Immich v2.7+ expects this hostname in DATABASE_URL
-    image: docker.io/tensorchord/pgvecto-rs:pg14-v0.2.0
+    # VectorChord extension required by Immich (>= v3.0) for vector similarity search (face/CLIP)
+    # pgvecto.rs support kept only for restoring pre-migration backups; safe to drop later via
+    # ghcr.io/immich-app/postgres:14-vectorchord0.4.3 (no "-pgvectors" suffix)
+    # Service name must be "database" — Immich expects this hostname in DATABASE_URL
+    image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
     container_name: immich-db
     env_file:
       - .env
