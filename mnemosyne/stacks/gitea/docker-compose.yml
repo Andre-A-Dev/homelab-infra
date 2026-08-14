@@ -29,7 +29,7 @@ services:
       - "0.0.0.0:2222:2222"    # Git SSH access from LAN clients
     networks:
       - caddy_proxy
-      - monitoring_monitoring
+      - monitoring
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -45,5 +45,5 @@ services:
 networks:
   caddy_proxy:
     external: true
-  monitoring_monitoring:
+  monitoring:
     external: true
