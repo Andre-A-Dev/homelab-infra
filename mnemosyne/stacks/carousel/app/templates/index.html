@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Karussell-Generator</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      max-width: 44rem; margin: 0 auto; padding: 1rem;
+      line-height: 1.5; font-size: 1.05rem;
+    }
+    label { display: block; font-weight: 600; margin: 1.25rem 0 0.3rem; }
+    textarea, select, input[type=file] {
+      width: 100%; font-size: 1rem; padding: 0.6rem;
+      border: 2px solid #888; border-radius: 8px; box-sizing: border-box;
+    }
+    textarea { min-height: 16rem; font-family: inherit; }
+    button {
+      margin-top: 1.5rem; font-size: 1.15rem; font-weight: 600;
+      padding: 0.8rem 1.6rem; border-radius: 10px; border: 2px solid #444;
+      cursor: pointer;
+    }
+    .error {
+      border: 2px solid #b00020; border-radius: 8px;
+      padding: 0.8rem; margin: 1rem 0; font-weight: 600;
+    }
+    .hint { font-weight: 400; font-size: 0.95rem; margin: 0.2rem 0 0; }
+    fieldset { border: none; padding: 0; margin: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Karussell-Generator</h1>
+    <p>Erzeugt aus deinem Text fertige Bilder für einen Instagram-Karussell-Beitrag.</p>
+  </header>
+
+  <main>
+    {% if error %}
+    <div class="error" role="alert" aria-live="assertive" id="error">
+      Fehler: {{ error }}
+    </div>
+    {% endif %}
+
+    <section aria-labelledby="howto">
+      <h2 id="howto">So funktioniert es</h2>
+      <p>Die erste Zeile ist der Titel und beginnt mit Raute und Leerzeichen, zum Beispiel: <strong># Mein Titel</strong>.
+      Absätze trennst du mit einer Leerzeile.
+      Einen Trigger-Abschnitt beginnst du mit einer Zeile <strong>## TW: Thema</strong>
+      und beendest ihn mit einer Zeile <strong>## ENDE TW</strong>.
+      Der Text wird automatisch auf so viele Folien verteilt wie nötig.</p>
+      <p>Formatierung im Text:
+      <strong>**fett**</strong>,
+      <em>*kursiv*</em>,
+      <u>__unterstrichen__</u>,
+      <s>~~durchgestrichen~~</s>.</p>
+    </section>
+
+    <form action="/render" method="post" enctype="multipart/form-data">
+      <fieldset>
+        <label for="template">Design-Vorlage</label>
+        <select id="template" name="template" required>
+          {% for t in templates %}
+          <option value="{{ t.id }}">{{ t.name }}</option>
+          {% endfor %}
+        </select>
+
+        <label for="markdown">Dein Text</label>
+        <p class="hint" id="markdown-hint">Titel in der ersten Zeile mit Raute, dann der Beitragstext.</p>
+        <textarea id="markdown" name="markdown" aria-describedby="markdown-hint"
+                  autocomplete="off" spellcheck="true"></textarea>
+
+        <label for="mdfile">Oder Markdown-Datei auswählen</label>
+        <p class="hint" id="mdfile-hint">Wenn du eine Datei auswählst, wird das Textfeld oben ignoriert.</p>
+        <input type="file" id="mdfile" name="mdfile" accept=".md,.txt,text/markdown,text/plain"
+               aria-describedby="mdfile-hint">
+
+        <button type="submit">Folien erzeugen</button>
+      </fieldset>
+    </form>
+  </main>
+</body>
+</html>

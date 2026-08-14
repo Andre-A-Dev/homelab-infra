@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Carousel – Template-Editor</title>
+<style>
+  :root {
+    --bg: #0d1210;
+    --panel: #161d1a;
+    --panel-2: #1e2621;
+    --border: #2a352f;
+    --ink: #e2d4ca;
+    --muted: #8a9690;
+    --accent: #6fae8a;
+    --accent-ink: #0d1210;
+    --danger: #c9756a;
+    --mono: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, system-ui, sans-serif; font-size: 13px;
+    display: flex; height: 100vh; overflow: hidden;
+  }
+  #sidebar {
+    width: 400px; flex-shrink: 0; overflow-y: auto; height: 100vh;
+    background: var(--panel); border-right: 1px solid var(--border);
+    padding: 16px; display: flex; flex-direction: column; gap: 4px;
+  }
+  #sidebar h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: 0.02em; }
+  #sidebar .subtitle { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  details {
+    border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px;
+    background: var(--panel-2); overflow: hidden;
+  }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  summary {
+    padding: 9px 12px; cursor: pointer; font-weight: 600; font-size: 12.5px;
+    letter-spacing: 0.02em; list-style: none; display: flex; align-items: center;
+    justify-content: space-between; user-select: none;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '▸'; color: var(--muted); transition: transform .15s; }
+  details[open] summary::after { transform: rotate(90deg); }
+  .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row.wrap { flex-wrap: wrap; }
+  .field { flex: 1; min-width: 0; }
+  .field label {
+    display: block; font-size: 10.5px; color: var(--muted);
+    margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  input[type=number], input[type=text], input[type=file], textarea, select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    color: var(--ink); border-radius: 5px; padding: 5px 7px; font-size: 12.5px;
+    font-family: var(--mono); accent-color: var(--accent);
+  }
+  input[type=file] { font-family: inherit; padding: 4px 6px; font-size: 11.5px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=color] {
+    width: 34px; height: 28px; padding: 2px; border: 1px solid var(--border);
+    border-radius: 5px; background: var(--bg); cursor: pointer;
+  }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea { min-height: 70px; resize: vertical; font-family: inherit; }
+  .hint { font-size: 10.5px; color: var(--muted); line-height: 1.4; }
+  .slider-num { display: flex; gap: 6px; align-items: center; }
+  .slider-num input[type=range] { flex: 1; }
+  .slider-num input[type=number] { width: 62px; flex-shrink: 0; }
+  button {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 11px; font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.danger-outline { color: var(--danger); border-color: var(--danger); background: transparent; }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .logo-card {
+    border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+    display: flex; flex-direction: column; gap: 6px; background: var(--bg);
+  }
+  .logo-card.active { border-color: var(--accent); }
+  .logo-card .box4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 5px; }
+  .badge {
+    display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 20px;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  }
+  .badge.ok { color: var(--accent); border-color: var(--accent); }
+  .badge.missing { color: var(--danger); border-color: var(--danger); }
+  #main { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+  #topbar {
+    padding: 10px 18px; border-bottom: 1px solid var(--border); background: var(--panel);
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  #topbar label { font-size: 11px; color: var(--muted); }
+  #pagetype { display: flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  #pagetype button {
+    border: none; border-radius: 0; border-right: 1px solid var(--border);
+    background: var(--panel-2); font-size: 11.5px; padding: 6px 12px;
+  }
+  #pagetype button:last-child { border-right: none; }
+  #pagetype button.active { background: var(--accent); color: var(--accent-ink); }
+  #stage-wrap {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    overflow: auto; background:
+      repeating-conic-gradient(#121815 0% 25%, #0d1210 0% 50%) 0 0 / 22px 22px;
+  }
+  #stage-frame {
+    position: relative; flex-shrink: 0; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  #stage { position: absolute; top: 0; left: 0; width: 1080px; height: 1440px; transform-origin: top left; }
+  #page-canvas { display: block; width: 1080px; height: 1440px; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; }
+  #overlay .title-slide {
+    position: absolute; left: 0; right: 0; text-align: center; font-weight: 700;
+  }
+  #overlay .tw-title-slide { position: absolute; left: 0; right: 0; text-align: center; font-weight: 700; }
+  #overlay .tw-label { display: block; font-weight: 400; margin-bottom: 30px; }
+  #overlay .content-box { position: absolute; text-align: left; }
+  #overlay .content-box p { margin: 0 0 0.9em 0; overflow-wrap: break-word; }
+  #overlay .content-box u { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+  #overlay .content-box s { text-decoration: line-through; text-decoration-thickness: 2px; }
+  #overlay .footer-account, #overlay .footer-page { position: absolute; letter-spacing: 0.35em; white-space: nowrap; }
+  #overlay .footer-page { letter-spacing: normal; }
+  /* Draggable logo hit-areas: sit in the pointer-events layer, above the canvas */
+  #logo-handles { position: absolute; inset: 0; }
+  .logo-handle {
+    position: absolute; border: 2px dashed transparent; border-radius: 4px;
+    cursor: grab; pointer-events: auto; box-sizing: border-box;
+  }
+  .logo-handle:hover { border-color: rgba(111,174,138,0.7); }
+  .logo-handle.dragging { cursor: grabbing; border-color: var(--accent); background: rgba(111,174,138,0.12); }
+  #precision-note { font-size: 10.5px; color: var(--muted); text-align: center; padding: 6px; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<aside id="sidebar">
+  <h1>Template-Editor</h1>
+  <p class="subtitle">Panel, Logos, Farben, Schrift &amp; Text live anpassen — ohne Python-Aufruf.</p>
+
+  <details open>
+    <summary>Projekt</summary>
+    <div class="body">
+      <div class="row wrap">
+        <div class="field"><label for="in-name">Name</label><input id="in-name" type="text" value="Wolfkin System"></div>
+        <div class="field"><label for="in-id">Ordner-ID</label><input id="in-id" type="text" value="wolfkin"></div>
+      </div>
+      <div class="row wrap">
+        <div class="field"><label for="in-account">Account</label><input id="in-account" type="text" value="@WOLFKIN.SYSTEM"></div>
+        <div class="field"><label for="in-lang">Sprache</label><input id="in-lang" type="text" value="de"></div>
+      </div>
+      <div class="btn-row">
+        <button id="btn-import-json">template.json laden</button>
+        <input id="file-import-json" type="file" accept=".json" style="display:none">
+      </div>
+      <p class="hint">Import lädt nur Werte, keine Bilddateien — Assets unten separat auswählen (gleiche Dateinamen wie im JSON werden erkannt).</p>
+    </div>
+  </details>
+
+  <details open>
+    <summary>Assets</summary>
+    <div class="body">
+      <div class="field">
+        <label>Hintergrund normal <span class="badge" id="badge-bgn">fehlt</span></label>
+        <input id="file-bgn" type="file" accept="image/png,image/jpeg">
+      </div>
+      <div class="field">
+        <label>Hintergrund Trigger <span class="badge" id="badge-bgt">fehlt</span></label>
+        <input id="file-bgt" type="file" accept="image/png,image/jpeg">
+      </div>
+      <div class="row wrap">
+        <div class="field">
+          <label>Schrift regulär <span class="badge" id="badge-fr">fehlt</span></label>
+          <input id="file-font-r" type="file" accept=".ttf,.otf,.woff,.woff2">
+        </div>
+        <div class="field">
+          <label>Schrift kursiv <span class="badge" id="badge-fi">fehlt</span></label>
+          <input id="file-font-i" type="file" accept=".ttf,.otf,.woff,.woff2">
+        </div>
+      </div>
+      <p class="hint">Ohne eigene Schrift wird eine Systemschrift zur Vorschau verwendet — Zeilenumbrüche können dann leicht abweichen.</p>
+    </div>
+  </details>
+
+  <details open>
+    <summary>Panel-Geometrie</summary>
+    <div class="body" id="panel-geo"></div>
+  </details>
+
+  <details open>
+    <summary>Farben</summary>
+    <div class="body" id="colors"></div>
+  </details>
+
+  <details>
+    <summary>Schrift &amp; Abstände</summary>
+    <div class="body" id="typo"></div>
+  </details>
+
+  <details open>
+    <summary>Logos <span class="badge" id="logo-count">0</span></summary>
+    <div class="body">
+      <p class="hint">Logos direkt in der Vorschau rechts <strong>anklicken und ziehen</strong>, um die Position zu ändern. Größe und Deckkraft hier in der Liste.</p>
+      <div id="logo-list"></div>
+      <button id="btn-add-logo">+ Logo hinzufügen</button>
+    </div>
+  </details>
+
+  <details>
+    <summary>Sonstiges</summary>
+    <div class="body">
+      <div class="field">
+        <label for="in-tw-prefix">Trigger-Vorspann</label>
+        <input id="in-tw-prefix" type="text" value="Triggerwarnung">
+      </div>
+    </div>
+  </details>
+
+  <details open>
+    <summary>Export</summary>
+    <div class="body">
+      <div class="btn-row">
+        <button class="primary" id="btn-export-json">template.json herunterladen</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-export-normal">page_normal.png</button>
+        <button id="btn-export-tw-title">page_trigger_title.png</button>
+        <button id="btn-export-tw">page_trigger.png</button>
+      </div>
+      <p class="hint">Die drei PNGs sind exakt das, was <code>build_backgrounds.py</code> erzeugen würde (Logos liegen hinter dem Panel) — direkt nach <code>assets/</code> legen, kein Python-Lauf nötig.</p>
+    </div>
+  </details>
+</aside>
+
+<main id="main">
+  <div id="topbar">
+    <div class="group" id="pagetype">
+      <button data-type="title" class="active">Titel</button>
+      <button data-type="normal">Text</button>
+      <button data-type="tw-title">TW-Titel</button>
+      <button data-type="tw-text">TW-Text</button>
+    </div>
+    <div class="group">
+      <label for="in-title-text">Titel-Text</label>
+      <input id="in-title-text" type="text" value="Wenn der Wald zu laut wird" style="width:220px">
+    </div>
+    <div class="group">
+      <label for="in-tw-topic">TW-Thema</label>
+      <input id="in-tw-topic" type="text" value="Dissoziation" style="width:140px">
+    </div>
+  </div>
+  <div id="stage-wrap">
+    <div id="stage-frame">
+      <div id="stage">
+        <canvas id="page-canvas" width="1080" height="1440"></canvas>
+        <div id="overlay"></div>
+        <div id="logo-handles"></div>
+      </div>
+    </div>
+  </div>
+  <div id="precision-note">Fußzeilen-Position ist eine Annäherung an WeasyPrints Seiten-Layout — vor dem Deployment einmal mit echten Folien gegenprüfen. Panel, Logos, Farben und Titelgröße sind pixelgenau.</div>
+  <div style="padding: 0 18px 14px;">
+    <label for="in-body-text" style="font-size:11px;color:var(--muted)">Beispieltext (Vorschau der Formatierung: **fett**, *kursiv*, __unterstrichen__, ~~durchgestrichen~~)</label>
+    <textarea id="in-body-text" style="width:100%;margin-top:4px" rows="3">Manchmal fühlt sich alles gleichzeitig an. **Was uns hilft:** Feste Routinen und Pausen, bevor der Sturm kommt.
+
+Ein zweiter Absatz mit *kursivem* und __unterstrichenem__ Text.</textarea>
+  </div>
+</main>
+
+<script>
+'use strict';
+const PAGE_W = 1080, PAGE_H = 1440;
+
+function pyRound(x) {
+  const floor = Math.floor(x);
+  const diff = x - floor;
+  if (diff < 0.5) return floor;
+  if (diff > 0.5) return floor + 1;
+  return (floor % 2 === 0) ? floor : floor + 1;
+}
+
+const state = {
+  panel: { x0: 55, y0: 110, x1: 1025, y1: 1290, radius: 90, alpha: 0.9 },
+  colors: {
+    panel_normal: '#415347',
+    panel_trigger_title: '#7B614F',
+    panel_trigger: '#753E33',
+    text: '#E2D4CA',
+    footer: '#E2D4CA',
+  },
+  font: {
+    body_size: 44, body_line_height: 1.45,
+    title_size: 150, title_min_size: 100, footer_size: 26,
+  },
+  content_padding: 70,
+  logos: [
+    { file: 'logo_mountain.png', box: [20, 15, 230, 175], opacity: 0.55, img: null },
+    { file: 'logo_paw.png', box: [880, 1180, 1065, 1430], opacity: 0.45, img: null },
+  ],
+  footerOffsets: { pageNumberRight: -70 },
+  assets: { bgNormal: null, bgTrigger: null, fontRegular: null, fontItalic: null },
+  pageType: 'title',
+};
+
+let logoIdCounter = 2;
+
+function loadImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+document.getElementById('file-bgn').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  state.assets.bgNormal = await loadImageFile(f);
+  setBadge('badge-bgn', true); redraw();
+});
+document.getElementById('file-bgt').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  state.assets.bgTrigger = await loadImageFile(f);
+  setBadge('badge-bgt', true); redraw();
+});
+document.getElementById('file-font-r').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const buf = await f.arrayBuffer();
+  const face = new FontFace('CarouselPreview', buf, { style: 'normal' });
+  await face.load(); document.fonts.add(face);
+  state.assets.fontRegular = f.name;
+  setBadge('badge-fr', true); redraw();
+});
+document.getElementById('file-font-i').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const buf = await f.arrayBuffer();
+  const face = new FontFace('CarouselPreview', buf, { style: 'italic' });
+  await face.load(); document.fonts.add(face);
+  state.assets.fontItalic = f.name;
+  setBadge('badge-fi', true); redraw();
+});
+
+function setBadge(id, ok) {
+  const el = document.getElementById(id);
+  el.textContent = ok ? 'geladen' : 'fehlt';
+  el.className = 'badge ' + (ok ? 'ok' : 'missing');
+}
+
+function sliderNum(container, label, min, max, step, value, onChange) {
+  const field = document.createElement('div');
+  field.className = 'field';
+  field.innerHTML = `<label>${label}</label>
+    <div class="slider-num">
+      <input type="range" min="${min}" max="${max}" step="${step}" value="${value}">
+      <input type="number" min="${min}" max="${max}" step="${step}" value="${value}">
+    </div>`;
+  const range = field.querySelector('input[type=range]');
+  const num = field.querySelector('input[type=number]');
+  range.addEventListener('input', () => { num.value = range.value; onChange(parseFloat(range.value)); });
+  num.addEventListener('input', () => { range.value = num.value; onChange(parseFloat(num.value)); });
+  container.appendChild(field);
+  return {
+    set: v => { range.value = v; num.value = v; }
+  };
+}
+
+function colorField(container, label, key) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `<div class="field"><label>${label}</label>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input type="color" value="${state.colors[key]}">
+      <input type="text" value="${state.colors[key]}" style="flex:1">
+    </div></div>`;
+  const colorInput = row.querySelector('input[type=color]');
+  const textInput = row.querySelector('input[type=text]');
+  colorInput.addEventListener('input', () => { textInput.value = colorInput.value; state.colors[key] = colorInput.value; redraw(); });
+  textInput.addEventListener('input', () => {
+    if (/^#[0-9a-fA-F]{6}$/.test(textInput.value)) { colorInput.value = textInput.value; state.colors[key] = textInput.value; redraw(); }
+  });
+  container.appendChild(row);
+}
+
+function buildAllControls() {
+  const c1 = document.getElementById('panel-geo'); c1.innerHTML = '';
+  const row1 = document.createElement('div'); row1.className = 'row';
+  const row2 = document.createElement('div'); row2.className = 'row';
+  c1.appendChild(row1); c1.appendChild(row2);
+  sliderNum(row1, 'X0 (links)', 0, PAGE_W, 1, state.panel.x0, v => { state.panel.x0 = v; redraw(); });
+  sliderNum(row1, 'Y0 (oben)', 0, PAGE_H, 1, state.panel.y0, v => { state.panel.y0 = v; redraw(); });
+  sliderNum(row2, 'X1 (rechts)', 0, PAGE_W, 1, state.panel.x1, v => { state.panel.x1 = v; redraw(); });
+  sliderNum(row2, 'Y1 (unten)', 0, PAGE_H, 1, state.panel.y1, v => { state.panel.y1 = v; redraw(); });
+  const row3 = document.createElement('div'); row3.className = 'row';
+  c1.appendChild(row3);
+  sliderNum(row3, 'Eckenradius', 0, 400, 1, state.panel.radius, v => { state.panel.radius = v; redraw(); });
+  sliderNum(row3, 'Deckkraft', 0, 1, 0.01, state.panel.alpha, v => { state.panel.alpha = v; redraw(); });
+
+  const c2 = document.getElementById('colors'); c2.innerHTML = '';
+  colorField(c2, 'Panel normal', 'panel_normal');
+  colorField(c2, 'Panel TW-Titel', 'panel_trigger_title');
+  colorField(c2, 'Panel TW-Text', 'panel_trigger');
+  colorField(c2, 'Text', 'text');
+  colorField(c2, 'Fußzeile', 'footer');
+
+  const c3 = document.getElementById('typo'); c3.innerHTML = '';
+  const t1 = document.createElement('div'); t1.className = 'row'; c3.appendChild(t1);
+  sliderNum(t1, 'Titel-Größe', 40, 220, 1, state.font.title_size, v => { state.font.title_size = v; redraw(); });
+  sliderNum(t1, 'Titel-Minimum', 40, 220, 1, state.font.title_min_size, v => { state.font.title_min_size = v; redraw(); });
+  const t2 = document.createElement('div'); t2.className = 'row'; c3.appendChild(t2);
+  sliderNum(t2, 'Fließtext-Größe', 20, 80, 1, state.font.body_size, v => { state.font.body_size = v; redraw(); });
+  sliderNum(t2, 'Zeilenhöhe', 1, 2.2, 0.05, state.font.body_line_height, v => { state.font.body_line_height = v; redraw(); });
+  const t3 = document.createElement('div'); t3.className = 'row'; c3.appendChild(t3);
+  sliderNum(t3, 'Fußzeile-Größe', 10, 50, 1, state.font.footer_size, v => { state.font.footer_size = v; redraw(); });
+  sliderNum(t3, 'Innenabstand', 0, 200, 1, state.content_padding, v => { state.content_padding = v; redraw(); });
+  const t4 = document.createElement('div'); t4.className = 'row'; c3.appendChild(t4);
+  sliderNum(t4, 'Seitenzahl-Korrektur (X)', -200, 100, 1, state.footerOffsets.pageNumberRight, v => { state.footerOffsets.pageNumberRight = v; redraw(); });
+}
+buildAllControls();
+
+// ── Logos: sidebar list (size / opacity / filename) ─────────────────────
+let activeLogoIndex = null;
+
+function renderLogoList() {
+  const list = document.getElementById('logo-list');
+  list.innerHTML = '';
+  document.getElementById('logo-count').textContent = state.logos.length;
+  state.logos.forEach((logo, idx) => {
+    const card = document.createElement('div');
+    card.className = 'logo-card' + (idx === activeLogoIndex ? ' active' : '');
+    card.innerHTML = `
+      <div class="row">
+        <div class="field">
+          <label>Datei <span class="badge ${logo.img ? 'ok' : 'missing'}">${logo.img ? 'geladen' : 'fehlt'}</span></label>
+          <input type="file" accept="image/png" data-role="file">
+        </div>
+        <button data-role="remove" class="danger-outline" style="align-self:flex-end">Entfernen</button>
+      </div>
+      <div class="field"><label>Dateiname (für Export)</label><input type="text" data-role="filename" value="${logo.file}"></div>
+      <div class="box4">
+        <div class="field"><label>X0</label><input type="number" data-role="x0" value="${logo.box[0]}"></div>
+        <div class="field"><label>Y0</label><input type="number" data-role="y0" value="${logo.box[1]}"></div>
+        <div class="field"><label>X1</label><input type="number" data-role="x1" value="${logo.box[2]}"></div>
+        <div class="field"><label>Y1</label><input type="number" data-role="y1" value="${logo.box[3]}"></div>
+      </div>
+      <p class="hint" style="margin:0">X0/Y0 = Position (oben links), X1/Y1 = Größe des Rahmens — oder direkt in der Vorschau ziehen.</p>
+      <div class="field"><label data-role="opacity-label">Deckkraft (${logo.opacity})</label>
+        <input type="range" min="0" max="1" step="0.01" data-role="opacity" value="${logo.opacity}"></div>
+    `;
+    card.addEventListener('click', () => { activeLogoIndex = idx; renderLogoList(); redraw(); });
+    card.querySelector('[data-role=file]').addEventListener('change', async e => {
+      const f = e.target.files[0]; if (!f) return;
+      logo.img = await loadImageFile(f);
+      renderLogoList(); redraw();
+    });
+    card.querySelector('[data-role=filename]').addEventListener('input', e => { logo.file = e.target.value; });
+    card.querySelector('[data-role=remove]').addEventListener('click', ev => {
+      ev.stopPropagation();
+      state.logos.splice(idx, 1);
+      if (activeLogoIndex === idx) activeLogoIndex = null;
+      renderLogoList(); redraw();
+    });
+    ['x0','y0','x1','y1'].forEach((k, i) => {
+      card.querySelector(`[data-role=${k}]`).addEventListener('input', e => {
+        logo.box[i] = parseFloat(e.target.value) || 0; redraw();
+      });
+    });
+    const opRange = card.querySelector('[data-role=opacity]');
+    opRange.addEventListener('input', e => {
+      logo.opacity = parseFloat(e.target.value);
+      card.querySelector('[data-role=opacity-label]').textContent = `Deckkraft (${logo.opacity})`;
+      redraw();
+    });
+    list.appendChild(card);
+  });
+}
+document.getElementById('btn-add-logo').addEventListener('click', () => {
+  logoIdCounter++;
+  state.logos.push({ file: `logo_${logoIdCounter}.png`, box: [100, 100, 300, 300], opacity: 0.5, img: null });
+  activeLogoIndex = state.logos.length - 1;
+  renderLogoList(); redraw();
+});
+renderLogoList();
+
+// ── Logos: drag-to-reposition directly on the preview ───────────────────
+// Dragging moves the box (x0,y0,x1,y1 shift together) — position only.
+// Resizing stays in the sidebar (X1/Y1 fields) to keep the two concerns
+// (position vs. size) separate and unambiguous.
+let dragState = null; // { logoIndex, startX, startY, origBox }
+
+function stageToNative(clientX, clientY) {
+  const rect = document.getElementById('stage-frame').getBoundingClientRect();
+  return {
+    x: (clientX - rect.left) * (PAGE_W / rect.width),
+    y: (clientY - rect.top) * (PAGE_H / rect.height),
+  };
+}
+
+function renderLogoHandles() {
+  const layer = document.getElementById('logo-handles');
+  layer.innerHTML = '';
+  state.logos.forEach((logo, idx) => {
+    const [x0, y0, x1, y1] = logo.box;
+    const handle = document.createElement('div');
+    handle.className = 'logo-handle';
+    handle.style.left = x0 + 'px';
+    handle.style.top = y0 + 'px';
+    handle.style.width = (x1 - x0) + 'px';
+    handle.style.height = (y1 - y0) + 'px';
+    handle.title = logo.file;
+    handle.addEventListener('pointerdown', ev => {
+      ev.preventDefault();
+      activeLogoIndex = idx;
+      renderLogoList();
+      dragState = {
+        logoIndex: idx,
+        start: stageToNative(ev.clientX, ev.clientY),
+        origBox: [...logo.box],
+      };
+      handle.classList.add('dragging');
+      handle.setPointerCapture(ev.pointerId);
+    });
+    handle.addEventListener('pointermove', ev => {
+      if (!dragState || dragState.logoIndex !== idx) return;
+      const now = stageToNative(ev.clientX, ev.clientY);
+      const dx = now.x - dragState.start.x;
+      const dy = now.y - dragState.start.y;
+      const [ox0, oy0, ox1, oy1] = dragState.origBox;
+      logo.box[0] = Math.round(ox0 + dx);
+      logo.box[1] = Math.round(oy0 + dy);
+      logo.box[2] = Math.round(ox1 + dx);
+      logo.box[3] = Math.round(oy1 + dy);
+      redraw();
+      syncLogoCardFields(idx);
+    });
+    const endDrag = ev => {
+      if (!dragState || dragState.logoIndex !== idx) return;
+      dragState = null;
+      handle.classList.remove('dragging');
+    };
+    handle.addEventListener('pointerup', endDrag);
+    handle.addEventListener('pointercancel', endDrag);
+    layer.appendChild(handle);
+  });
+}
+
+function syncLogoCardFields(idx) {
+  const cards = document.querySelectorAll('.logo-card');
+  const card = cards[idx];
+  if (!card) return;
+  const logo = state.logos[idx];
+  ['x0','y0','x1','y1'].forEach((k, i) => {
+    const input = card.querySelector(`[data-role=${k}]`);
+    if (input) input.value = logo.box[i];
+  });
+}
+
+// ── Page type switch ───────────────────────────────────────────────────
+document.querySelectorAll('#pagetype button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#pagetype button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.pageType = btn.dataset.type;
+    redraw();
+  });
+});
+['in-title-text', 'in-tw-topic', 'in-body-text', 'in-account'].forEach(id => {
+  document.getElementById(id).addEventListener('input', redraw);
+});
+
+// ── Canvas compositing (mirrors scripts/build_backgrounds.py) ──────────
+// Order: background -> logos -> panel. Logos sit BEHIND the panel.
+function coverCropDraw(ctx, img, w, h) {
+  const scale = Math.max(w / img.width, h / img.height);
+  const nw = pyRound(img.width * scale), nh = pyRound(img.height * scale);
+  const dx = -(nw - w) / 2, dy = -(nh - h) / 2;
+  ctx.drawImage(img, dx, dy, nw, nh);
+}
+function roundRectPath(ctx, x0, y0, x1, y1, r) {
+  const w = x1 - x0, h = y1 - y0;
+  r = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x0 + r, y0);
+  ctx.arcTo(x1, y0, x1, y1, r);
+  ctx.arcTo(x1, y1, x0, y1, r);
+  ctx.arcTo(x0, y1, x0, y0, r);
+  ctx.arcTo(x0, y0, x1, y0, r);
+  ctx.closePath();
+}
+function drawBackground(ctx, bgType) {
+  ctx.clearRect(0, 0, PAGE_W, PAGE_H);
+  const bgImg = (bgType === 'trigger' || bgType === 'trigger-title') ? state.assets.bgTrigger : state.assets.bgNormal;
+  if (bgImg) {
+    coverCropDraw(ctx, bgImg, PAGE_W, PAGE_H);
+  } else {
+    ctx.fillStyle = '#333'; ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+    ctx.fillStyle = '#777'; ctx.font = '24px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('Hintergrundbild fehlt (Assets-Panel)', PAGE_W / 2, PAGE_H / 2);
+  }
+  for (const logo of state.logos) {
+    if (!logo.img) continue;
+    const [bx0, by0, bx1, by1] = logo.box;
+    const bw = bx1 - bx0, bh = by1 - by0;
+    const scale = Math.min(bw / logo.img.width, bh / logo.img.height);
+    const dw = logo.img.width * scale, dh = logo.img.height * scale;
+    ctx.save();
+    ctx.globalAlpha = logo.opacity;
+    ctx.drawImage(logo.img, bx0, by0, dw, dh);
+    ctx.restore();
+  }
+  const p = state.panel;
+  const colorKey = bgType === 'trigger-title' ? 'panel_trigger_title'
+                  : bgType === 'trigger' ? 'panel_trigger' : 'panel_normal';
+  ctx.save();
+  ctx.globalAlpha = p.alpha;
+  ctx.fillStyle = state.colors[colorKey];
+  roundRectPath(ctx, p.x0, p.y0, p.x1, p.y1, p.radius);
+  ctx.fill();
+  ctx.restore();
+}
+
+// ── Inline formatting (mirrors app/renderer.py _inline) ────────────────
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function inlineFormat(text) {
+  let t = escapeHtml(text);
+  t = t.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  t = t.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  t = t.replace(/__(.+?)__/g, '<u>$1</u>');
+  t = t.replace(/~~(.+?)~~/g, '<s>$1</s>');
+  return t;
+}
+
+// Mirrors app/renderer.py's word-wrap + fit-to-panel title logic closely
+// enough for design purposes (greedy wrap, scan font sizes top-down).
+function wrapAndFitTitle(title, maxWidth, maxHeight, lineHeightFactor) {
+  const words = title.split(/\s+/).filter(Boolean);
+  const upper = Math.max(24, Math.round(maxHeight / lineHeightFactor) + 10);
+  for (let size = upper; size >= 24; size--) {
+    const ctx = document.getElementById('page-canvas').getContext('2d');
+    ctx.font = `700 ${size}px CarouselPreview`;
+    const counts = [];
+    let cur = 0, curW = 0;
+    const spaceW = ctx.measureText(' ').width;
+    for (const w of words) {
+      const ww = ctx.measureText(w).width;
+      const added = cur === 0 ? ww : curW + spaceW + ww;
+      if (cur > 0 && added > maxWidth) { counts.push(cur); cur = 1; curW = ww; }
+      else { cur++; curW = added; }
+    }
+    if (cur) counts.push(cur);
+    const totalH = counts.length * size * lineHeightFactor;
+    if (totalH > maxHeight) continue;
+    let widest = 0, idx = 0;
+    for (const n of counts) {
+      const line = words.slice(idx, idx + n).join(' ');
+      widest = Math.max(widest, ctx.measureText(line).width);
+      idx += n;
+    }
+    if (widest <= maxWidth) {
+      const lines = [];
+      idx = 0;
+      for (const n of counts) { lines.push(words.slice(idx, idx + n).join(' ')); idx += n; }
+      return { size, lines, totalHeight: totalH };
+    }
+  }
+  return { size: 24, lines: [title], totalHeight: 24 * lineHeightFactor };
+}
+
+function drawOverlay() {
+  const overlay = document.getElementById('overlay');
+  overlay.innerHTML = '';
+  const p = state.panel, f = state.font, pad = state.content_padding;
+  const marginTop = p.y0 + pad, marginSide = p.x0 + pad, marginBottom = PAGE_H - p.y1 + pad;
+  const footerH = PAGE_H - p.y1;
+  const fontStack = "'CarouselPreview', -apple-system, sans-serif";
+  const account = document.getElementById('in-account').value;
+  const titleText = document.getElementById('in-title-text').value;
+  const twTopic = document.getElementById('in-tw-topic').value;
+  const bodyText = document.getElementById('in-body-text').value;
+
+  const showFooterAccount = true;
+  const showPageNumber = state.pageType === 'normal' || state.pageType === 'tw-text';
+
+  if (showFooterAccount) {
+    const acc = document.createElement('div');
+    acc.className = 'footer-account';
+    acc.style.cssText = `left:${marginSide}px; right:${marginSide}px; text-align:center;
+      bottom:${footerH / 2 - f.footer_size}px;
+      font-family:${fontStack}; font-size:${f.footer_size}px; color:${state.colors.footer};`;
+    acc.textContent = account;
+    overlay.appendChild(acc);
+  }
+  if (showPageNumber) {
+    const pn = document.createElement('div');
+    pn.className = 'footer-page';
+    pn.style.cssText = `right:${marginSide + state.footerOffsets.pageNumberRight}px;
+      bottom:${footerH / 2 - f.footer_size}px;
+      font-family:${fontStack}; font-size:${f.footer_size}px; color:${state.colors.footer};`;
+    pn.textContent = '3';
+    overlay.appendChild(pn);
+  }
+
+  if (state.pageType === 'title') {
+    const contentW = (p.x1 - p.x0 - 2 * pad) * 0.96;
+    const contentH = (p.y1 - p.y0 - 2 * pad) * 0.96;
+    const fit = wrapAndFitTitle(titleText || ' ', contentW, contentH, 1.15);
+    const h1 = document.createElement('div');
+    h1.className = 'title-slide';
+    const blockTop = marginTop + Math.max(0, Math.round(((p.y1 - p.y0 - 2 * pad) - fit.totalHeight) / 2));
+    h1.style.cssText = `top:${blockTop}px; left:${marginSide}px; right:${marginSide}px;
+      font-family:${fontStack}; font-size:${fit.size}px; line-height:1.15; color:${state.colors.text};`;
+    h1.innerHTML = fit.lines.map(inlineFormat).join('<br>');
+    overlay.appendChild(h1);
+
+  } else if (state.pageType === 'tw-title') {
+    const h2 = document.createElement('div');
+    h2.className = 'tw-title-slide';
+    h2.style.cssText = `top:${marginTop + pyRound((p.y1 - p.y0 - 2 * pad) * 0.30)}px;
+      left:${marginSide}px; right:${marginSide}px;
+      font-family:${fontStack}; font-size:${pyRound(f.title_size * 0.75)}px; color:${state.colors.text};`;
+    const label = document.createElement('span');
+    label.className = 'tw-label';
+    label.style.fontSize = pyRound(f.title_size * 0.45) + 'px';
+    label.textContent = document.getElementById('in-tw-prefix').value;
+    h2.appendChild(label);
+    if (twTopic.trim()) h2.appendChild(document.createTextNode(twTopic));
+    overlay.appendChild(h2);
+
+  } else {
+    const box = document.createElement('div');
+    box.className = 'content-box';
+    box.style.cssText = `top:${marginTop}px; left:${marginSide}px; right:${marginSide}px; bottom:${marginBottom}px;
+      font-family:${fontStack}; font-size:${f.body_size}px; line-height:${f.body_line_height};
+      color:${state.colors.text}; overflow:hidden;`;
+    const paras = bodyText.split(/\n\s*\n/).filter(s => s.trim());
+    box.innerHTML = paras.map(par => `<p>${inlineFormat(par.replace(/\n/g, ' '))}</p>`).join('');
+    overlay.appendChild(box);
+  }
+}
+
+function redraw() {
+  const ctx = document.getElementById('page-canvas').getContext('2d');
+  const bgType = state.pageType === 'title' ? 'normal'
+               : state.pageType === 'normal' ? 'normal'
+               : state.pageType === 'tw-title' ? 'trigger-title'
+               : 'trigger';
+  drawBackground(ctx, bgType);
+  drawOverlay();
+  renderLogoHandles();
+}
+
+function fitStage() {
+  const wrap = document.getElementById('stage-wrap');
+  const frame = document.getElementById('stage-frame');
+  const stage = document.getElementById('stage');
+  const availH = wrap.clientHeight - 32, availW = wrap.clientWidth - 32;
+  const scale = Math.min(availH / PAGE_H, availW / PAGE_W);
+  frame.style.width = PAGE_W * scale + 'px';
+  frame.style.height = PAGE_H * scale + 'px';
+  stage.style.transform = `scale(${scale})`;
+}
+window.addEventListener('resize', fitStage);
+
+// ── template.json import/export ─────────────────────────────────────────
+document.getElementById('btn-import-json').addEventListener('click', () => {
+  document.getElementById('file-import-json').click();
+});
+document.getElementById('file-import-json').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const cfg = JSON.parse(await f.text());
+  document.getElementById('in-name').value = cfg.name || '';
+  document.getElementById('in-account').value = cfg.account || '';
+  document.getElementById('in-lang').value = cfg.language || 'de';
+  document.getElementById('in-tw-prefix').value = cfg.trigger_title_prefix || 'Triggerwarnung';
+  Object.assign(state.panel, cfg.panel || {});
+  Object.assign(state.colors, cfg.colors || {});
+  Object.assign(state.font, cfg.font || {});
+  state.content_padding = cfg.content_padding ?? state.content_padding;
+  state.logos = (cfg.logos || []).map(l => ({ file: l.file, box: [...l.box], opacity: l.opacity, img: null }));
+  activeLogoIndex = null;
+  buildAllControls();
+  renderLogoList();
+  redraw();
+  alert('Werte geladen. Bitte Hintergründe, Logos und Schriften im Assets-Bereich erneut auswählen (Dateinamen: siehe Logo-Karten).');
+});
+
+document.getElementById('btn-export-json').addEventListener('click', () => {
+  const cfg = {
+    name: document.getElementById('in-name').value,
+    account: document.getElementById('in-account').value,
+    language: document.getElementById('in-lang').value,
+    background: { normal: 'bg_normal_src.png', trigger: 'bg_trigger_src.png' },
+    colors: { ...state.colors },
+    panel: { ...state.panel },
+    logos: state.logos.map(l => ({ file: l.file, box: l.box, opacity: l.opacity })),
+    font: {
+      family: 'Cabin',
+      regular: state.assets.fontRegular ? `fonts/${state.assets.fontRegular}` : 'fonts/Cabin.ttf',
+      italic: state.assets.fontItalic ? `fonts/${state.assets.fontItalic}` : 'fonts/Cabin-Italic.ttf',
+      body_size: state.font.body_size,
+      body_line_height: state.font.body_line_height,
+      title_size: state.font.title_size,
+      title_min_size: state.font.title_min_size,
+      footer_size: state.font.footer_size,
+    },
+    content_padding: state.content_padding,
+    trigger_title_prefix: document.getElementById('in-tw-prefix').value,
+  };
+  downloadText('template.json', JSON.stringify(cfg, null, 2));
+});
+function downloadText(filename, text) {
+  const blob = new Blob([text], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  URL.revokeObjectURL(a.href);
+}
+function exportBackground(bgType, filename) {
+  const off = document.createElement('canvas');
+  off.width = PAGE_W; off.height = PAGE_H;
+  drawBackground(off.getContext('2d'), bgType);
+  off.toBlob(blob => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    URL.revokeObjectURL(a.href);
+  }, 'image/png');
+}
+document.getElementById('btn-export-normal').addEventListener('click', () => exportBackground('normal', 'page_normal.png'));
+document.getElementById('btn-export-tw-title').addEventListener('click', () => exportBackground('trigger-title', 'page_trigger_title.png'));
+document.getElementById('btn-export-tw').addEventListener('click', () => exportBackground('trigger', 'page_trigger.png'));
+
+fitStage();
+redraw();
+</script>
+</body>
+</html>

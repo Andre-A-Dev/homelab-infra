@@ -1,0 +1,17 @@
+---
+services:
+
+  carousel:
+    build: .
+    image: carousel:latest
+    container_name: carousel
+    restart: unless-stopped
+    volumes:
+      - /mnt/codex/carousel/jobs:/data/jobs
+      - ./templates_ig:/srv/carousel/templates_ig
+    networks:
+      - caddy_proxy
+
+networks:
+  caddy_proxy:
+    external: true
