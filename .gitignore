@@ -41,3 +41,7 @@ astraeus_nx/dotfiles/openrgb/logs/
 
 astraeus_nx/dotfiles/coolercontrol/*.cache
 icons/*
+mnemosyne/stacks/carousel/templates_ig/*
+scripts/audit_repo.py
+scripts/export_public.py
+scripts/sync_public.py
