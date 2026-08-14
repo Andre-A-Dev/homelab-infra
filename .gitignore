@@ -30,6 +30,8 @@ desktop.ini
 .directory
 /.venv/
 
+# CachyOS
+
 # OpenRGB — never commit plugin binaries, only settings.
 # Lesson from 2026-08-14: manually downloaded .so files caused the crash.
 astraeus_nx/dotfiles/openrgb/**/*.so
@@ -38,3 +40,4 @@ astraeus_nx/dotfiles/openrgb/**/*.so
 astraeus_nx/dotfiles/openrgb/logs/
 
 astraeus_nx/dotfiles/coolercontrol/*.cache
+icons/*
