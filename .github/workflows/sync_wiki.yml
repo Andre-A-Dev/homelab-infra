@@ -26,11 +26,10 @@ jobs:
 
       - name: Copy all markdown files from wiki/ to wiki repo
         run: |
-          cp wiki/*.md wiki-repo/
+          cp wiki/*.md       wiki-repo/
           cp ARCHITECTURE.md wiki-repo/Architecture.md
           cp RUNBOOK.md      wiki-repo/Runbook.md
           cp SERVICES.md     wiki-repo/Services.md
-          cp wiki/_Sidebar.md wiki-repo/_Sidebar.md
 
       - name: Commit and push wiki
         run: |
