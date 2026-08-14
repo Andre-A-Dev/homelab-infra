@@ -4,28 +4,6 @@ Same physical machine as `astraeus/`, second SSD booting CachyOS (Arch-based
 Linux). Currently a Linux playground and the planned migration target if the
 primary environment moves away from Windows.
 
-## What is tracked here
-
-| Path | Purpose |
-|---|---|
-| [`dotfiles/ssh_config`](dotfiles/ssh_config) | SSH client config covering all homelab hosts |
-
-## SSH config
-
-Symlink into place on the CachyOS install:
-
-```bash
-mkdir -p ~/.ssh
-ln -sf ~/homelab-infra/astraeus_nx/dotfiles/ssh_config ~/.ssh/config
-chmod 600 ~/.ssh/config
-```
-
-Covers:
-- `mnemosyne` / `boreas` — LAN hosts by IP
-- `git.home` — Gitea SSH on port 2222 via Mnemosyne
-- `mnemosyne-ts` / `boreas-ts` — Tailscale FQDN entries
-- `zephyros` — Tailscale IP (remote node, no LAN access)
-
 ## Caddy CA certificate
 
 CachyOS uses the system trust store. Import the Caddy internal CA root once to
