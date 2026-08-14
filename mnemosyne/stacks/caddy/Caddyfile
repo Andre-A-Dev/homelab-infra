@@ -154,3 +154,24 @@ wakapi.home {
     tls internal
     reverse_proxy wakapi:3000
 }
+
+# -- Aether Weather ---------------------------------------------------------------
+
+weather.home {
+  tls internal
+  reverse_proxy aether:8050
+}
+
+# -- Alloy ------------------------------------------------------------------------
+
+alloy.home {
+    tls internal
+    reverse_proxy alloy:12345
+}
+
+# -- Carousel ---------------------------------------------------------------------
+
+carousel.home {
+    tls internal
+    reverse_proxy carousel:5000
+}
