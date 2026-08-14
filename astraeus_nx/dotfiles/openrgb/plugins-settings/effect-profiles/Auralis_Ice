@@ -1,0 +1,567 @@
+{
+    "Effects": [
+        {
+            "AllowOnlyFirst": false,
+            "AutoStart": true,
+            "Brightness": 15,
+            "ControllerZones": [
+                {
+                    "description": "ENE SMBus Device",
+                    "is_segment": false,
+                    "location": "I2C: SMBus PIIX4 adapter port 0 at 0b00 (/dev/i2c-7), address 0x71",
+                    "name": "ENE DRAM",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "",
+                    "vendor": "ENE",
+                    "version": "AUDA0-E6K5-0101",
+                    "zone_idx": 0
+                },
+                {
+                    "description": "ENE SMBus Device",
+                    "is_segment": false,
+                    "location": "I2C: SMBus PIIX4 adapter port 0 at 0b00 (/dev/i2c-7), address 0x73",
+                    "name": "ENE DRAM",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "",
+                    "vendor": "ENE",
+                    "version": "AUDA0-E6K5-0101",
+                    "zone_idx": 0
+                },
+                {
+                    "description": "Gigabyte RGB Fusion 2 Blackwell GPU Device",
+                    "is_segment": false,
+                    "location": "I2C: NVIDIA i2c adapter 1 at 1:00.0\n (/dev/i2c-2), address 0x75",
+                    "name": "Gigabyte GeForce RTX 5080 Aero OC",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "",
+                    "vendor": "Gigabyte",
+                    "version": "",
+                    "zone_idx": 0
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw8",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 1,
+                    "self_brightness": 100,
+                    "serial": "3814E0747BD13752A7324A9D052FA183",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 3
+                },
+                {
+                    "description": "IT5711-GIGABYTE V1.0.27.5",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw12",
+                    "name": "X870E AORUS PRO ICE",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "0x5711C000",
+                    "vendor": "Gigabyte",
+                    "version": "1.0.27.5",
+                    "zone_idx": 3
+                },
+                {
+                    "description": "IT5711-GIGABYTE V1.0.27.5",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw12",
+                    "name": "X870E AORUS PRO ICE",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "0x5711C000",
+                    "vendor": "Gigabyte",
+                    "version": "1.0.27.5",
+                    "zone_idx": 4
+                },
+                {
+                    "description": "IT5711-GIGABYTE V1.0.27.5",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw12",
+                    "name": "X870E AORUS PRO ICE",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "0x5711C000",
+                    "vendor": "Gigabyte",
+                    "version": "1.0.27.5",
+                    "zone_idx": 5
+                }
+            ],
+            "CustomName": "",
+            "CustomSettings": {
+                "backColorBrightness": 50,
+                "backgroundColors": 0,
+                "fadeInSpeed": 25,
+                "fadeOutSpeed": 76,
+                "starColors": [
+                    16748800,
+                    8388607,
+                    11861760
+                ],
+                "starDensity": 31,
+                "starOnTime": 33
+            },
+            "EffectClassName": "StarryNight",
+            "FPS": 60,
+            "RandomColors": false,
+            "Slider2Val": 1,
+            "Speed": 50,
+            "Temperature": 0,
+            "Tint": 0
+        },
+        {
+            "AllowOnlyFirst": false,
+            "AutoStart": true,
+            "Brightness": 15,
+            "ControllerZones": [
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw8",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "3814E0747BD13752A7324A9D052FA183",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 1
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw8",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "3814E0747BD13752A7324A9D052FA183",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 1
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 1
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 1
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 2
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 2
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 3
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 3
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 5
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 5
+                }
+            ],
+            "CustomName": "",
+            "CustomSettings": {
+                "grow_speed": 10,
+                "intensity_speed": 10,
+                "max_intensity": 80,
+                "motion": false,
+                "radius": 50,
+                "run_once": false
+            },
+            "EffectClassName": "Sunrise",
+            "FPS": 60,
+            "RandomColors": false,
+            "Slider2Val": 1,
+            "Speed": 10,
+            "Temperature": 0,
+            "Tint": 0,
+            "UserColors": [
+                11861760,
+                11861760,
+                16748800,
+                16748800
+            ]
+        },
+        {
+            "AllowOnlyFirst": false,
+            "AutoStart": true,
+            "Brightness": 15,
+            "ControllerZones": [
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw8",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "3814E0747BD13752A7324A9D052FA183",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 0
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw8",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "3814E0747BD13752A7324A9D052FA183",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 0
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw8",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "3814E0747BD13752A7324A9D052FA183",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 2
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw8",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "3814E0747BD13752A7324A9D052FA183",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 2
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 0
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 0
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 4
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw9",
+                    "name": "NZXT RGB & Fan Controller",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "14E1DD0BD9CCF6588A8F54EC774B8F19",
+                    "vendor": "NZXT",
+                    "version": "1.7.0",
+                    "zone_idx": 4
+                }
+            ],
+            "CustomName": "",
+            "CustomSettings": {
+                "grow_speed": 10,
+                "intensity_speed": 10,
+                "max_intensity": 80,
+                "motion": false,
+                "radius": 50,
+                "run_once": false
+            },
+            "EffectClassName": "Sunrise",
+            "FPS": 60,
+            "RandomColors": false,
+            "Slider2Val": 1,
+            "Speed": 10,
+            "Temperature": 0,
+            "Tint": 0,
+            "UserColors": [
+                16748800,
+                16748800,
+                11861760,
+                11861760
+            ]
+        },
+        {
+            "AllowOnlyFirst": false,
+            "AutoStart": true,
+            "Brightness": 15,
+            "ControllerZones": [
+                {
+                    "description": "IT5711-GIGABYTE V1.0.27.5",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw12",
+                    "name": "X870E AORUS PRO ICE",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "0x5711C000",
+                    "vendor": "Gigabyte",
+                    "version": "1.0.27.5",
+                    "zone_idx": 2
+                }
+            ],
+            "CustomName": "",
+            "EffectClassName": "Comet",
+            "FPS": 60,
+            "RandomColors": false,
+            "Slider2Val": 50,
+            "Speed": 15,
+            "Temperature": 0,
+            "Tint": 0,
+            "UserColors": [
+                11861760
+            ]
+        },
+        {
+            "AllowOnlyFirst": false,
+            "AutoStart": true,
+            "Brightness": 15,
+            "ControllerZones": [
+                {
+                    "description": "IT5711-GIGABYTE V1.0.27.5",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw12",
+                    "name": "X870E AORUS PRO ICE",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "0x5711C000",
+                    "vendor": "Gigabyte",
+                    "version": "1.0.27.5",
+                    "zone_idx": 0
+                }
+            ],
+            "CustomName": "",
+            "EffectClassName": "Comet",
+            "FPS": 60,
+            "RandomColors": false,
+            "Slider2Val": 50,
+            "Speed": 15,
+            "Temperature": 0,
+            "Tint": 0,
+            "UserColors": [
+                16748800
+            ]
+        },
+        {
+            "AllowOnlyFirst": false,
+            "AutoStart": true,
+            "Brightness": 15,
+            "ControllerZones": [
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw10",
+                    "name": "NZXT Kraken X3 Series",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "00000000001A",
+                    "vendor": "NZXT",
+                    "version": "2.1.0",
+                    "zone_idx": 0
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw10",
+                    "name": "NZXT Kraken X3 Series",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "00000000001A",
+                    "vendor": "NZXT",
+                    "version": "2.1.0",
+                    "zone_idx": 1
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw10",
+                    "name": "NZXT Kraken X3 Series",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "00000000001A",
+                    "vendor": "NZXT",
+                    "version": "2.1.0",
+                    "zone_idx": 1
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": false,
+                    "location": "HID: /dev/hidraw10",
+                    "name": "NZXT Kraken X3 Series",
+                    "reverse": false,
+                    "segment_idx": -1,
+                    "self_brightness": 100,
+                    "serial": "00000000001A",
+                    "vendor": "NZXT",
+                    "version": "2.1.0",
+                    "zone_idx": 2
+                },
+                {
+                    "description": "NZXT Hue 2 Device",
+                    "is_segment": true,
+                    "location": "HID: /dev/hidraw10",
+                    "name": "NZXT Kraken X3 Series",
+                    "reverse": false,
+                    "segment_idx": 0,
+                    "self_brightness": 100,
+                    "serial": "00000000001A",
+                    "vendor": "NZXT",
+                    "version": "2.1.0",
+                    "zone_idx": 2
+                }
+            ],
+            "CustomName": "",
+            "CustomSettings": {
+                "OscillationSpeed": 100.0,
+                "WaveFrequency": 1.0,
+                "WaveSpeed": 50.0
+            },
+            "EffectClassName": "Wavy",
+            "FPS": 60,
+            "RandomColors": false,
+            "Slider2Val": 1,
+            "Speed": 1,
+            "Temperature": 0,
+            "Tint": 0,
+            "UserColors": [
+                16748800,
+                0
+            ]
+        }
+    ],
+    "version": 2
+}
