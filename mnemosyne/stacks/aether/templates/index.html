@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aether — Weather</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
+<meta name="theme-color" content="#0e1219">
+<style>
+  /* ===========================================================================
+     Aether — "atmospheric instrument"
+     Palette: deep dusk navy ground, brass-amber for warmth, glacier cyan for
+     moisture/cold. Signature: a barograph-style 24h trace under the hero, the
+     way an old recording barometer drags ink across a drum.
+     =========================================================================== */
+  :root[data-theme="dark"] {
+    --bg:        #0e1219;
+    --bg-raised: #161c27;
+    --bg-sunk:   #0a0d13;
+    --ink:       #e9eef6;
+    --ink-dim:   #8090a4;
+    --ink-faint: #4a5468;
+    --line:      #222b3a;
+    --warm:      #e0a458;
+    --cool:      #5fb8d6;
+    --trace-from:#e0a45855;
+    --trace-to:  #e0a45800;
+  }
+  :root[data-theme="light"] {
+    --bg:        #f3f1ea;
+    --bg-raised: #ffffff;
+    --bg-sunk:   #e8e5db;
+    --ink:       #1c222c;
+    --ink-dim:   #5d6573;
+    --ink-faint: #9aa0ab;
+    --line:      #ddd9cd;
+    --warm:      #b9722a;
+    --cool:      #2f7f9c;
+    --trace-from:#b9722a44;
+    --trace-to:  #b9722a00;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, "Inter", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.4;
+  }
+  .mono {
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wrap { max-width: 1100px; margin: 0 auto; padding: clamp(16px, 4vw, 40px); }
+
+  /* --- masthead ------------------------------------------------------------ */
+  header.masthead {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; margin-bottom: clamp(20px, 4vw, 36px);
+    border-bottom: 1px solid var(--line); padding-bottom: 16px;
+  }
+  .brand { display: flex; align-items: baseline; gap: 14px; }
+  .brand h1 {
+    margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em;
+  }
+  .brand .glyph { color: var(--warm); font-size: 22px; }
+  .brand .updated { font-size: 12px; color: var(--ink-dim); letter-spacing: 0.04em; }
+  .controls { display: flex; align-items: center; gap: 10px; }
+  button.ghost {
+    background: var(--bg-raised); color: var(--ink-dim);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 12px; font-size: 13px; cursor: pointer;
+    font-family: inherit;
+  }
+  button.ghost:hover { color: var(--ink); }
+  button.ghost:focus-visible { outline: 2px solid var(--cool); outline-offset: 2px; }
+
+  /* --- hero ---------------------------------------------------------------- */
+  .hero {
+    background: var(--bg-raised); border: 1px solid var(--line);
+    border-radius: 16px; padding: clamp(20px, 4vw, 34px);
+    margin-bottom: 26px; position: relative; overflow: hidden;
+  }
+  .hero .eyebrow {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.18em;
+    color: var(--ink-dim); margin-bottom: 6px;
+  }
+  .hero .place { font-size: 15px; color: var(--ink-dim); margin-bottom: 18px; }
+  .hero .reading { display: flex; align-items: flex-start; gap: 6px; }
+  .hero .temp {
+    font-size: clamp(64px, 16vw, 132px); font-weight: 700;
+    letter-spacing: -0.04em; line-height: 0.9;
+  }
+  .hero .unit { font-size: clamp(20px, 4vw, 34px); color: var(--ink-dim); margin-top: 0.5em; }
+  .hero .secondary {
+    display: flex; gap: 28px; margin-top: 16px; font-size: 15px; color: var(--ink-dim);
+  }
+  .hero .secondary b { color: var(--ink); font-weight: 600; }
+  .hero-trace { margin-top: 22px; position: relative; touch-action: none; }
+  .hero-trace svg { width: 100%; height: 90px; display: block; }
+  .hero-trace .hover-guide, .hero-trace .hover-dot { transition: opacity 0.08s ease; }
+  .trace-tip {
+    position: absolute; pointer-events: none; z-index: 3; top: 0;
+    background: var(--bg-raised); color: var(--ink); border: 1px solid var(--line);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums;
+    font-size: 12px; padding: 3px 8px; border-radius: 6px; white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  }
+  .trace-axis { font-size: 11px; color: var(--ink-faint); display: flex; justify-content: space-between; margin-top: 4px; }
+
+  /* --- section labels ------------------------------------------------------ */
+  .section-label {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--ink-dim); margin: 28px 2px 14px;
+  }
+
+  /* --- cards --------------------------------------------------------------- */
+  .grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  }
+  .card {
+    background: var(--bg-raised); border: 1px solid var(--line);
+    border-radius: 14px; padding: 16px 16px 12px; position: relative; overflow: hidden;
+  }
+  .card .label { font-size: 15px; font-weight: 600; }
+  .card .sub { font-size: 12px; color: var(--ink-dim); margin-bottom: 12px; }
+  .card .temp { font-size: 38px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+  .card .temp .unit { font-size: 17px; color: var(--ink-dim); font-weight: 500; margin-left: 2px; }
+  .card .extras { display: flex; flex-wrap: wrap; gap: 12px 18px; margin-top: 10px; font-size: 13px; color: var(--ink-dim); }
+  .card .extras b { color: var(--ink); font-weight: 600; }
+  .card-trace { margin-top: 12px; height: 34px; }
+  .card-trace svg { width: 100%; height: 34px; display: block; }
+
+  .zone-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 7px; vertical-align: middle; }
+  .zone-outdoor .zone-dot { background: var(--cool); }
+  .zone-indoor  .zone-dot { background: var(--warm); }
+
+  .stale { opacity: 0.5; }
+  .nodata { color: var(--ink-faint); font-style: normal; }
+
+  /* --- forecast ------------------------------------------------------------ */
+  .forecast {
+    background: var(--bg-raised); border: 1px solid var(--line);
+    border-radius: 16px; padding: clamp(16px, 3vw, 22px) clamp(18px, 3vw, 24px);
+    margin-bottom: 26px;
+  }
+  .fc-now { display: flex; align-items: center; gap: 16px; }
+  .fc-now .ic { font-size: 42px; line-height: 1; }
+  .fc-now .t { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+  .fc-now .meta { color: var(--ink-dim); font-size: 14px; }
+  .fc-now .meta b { color: var(--ink); font-weight: 600; }
+  .daily { display: flex; gap: 10px; margin-top: 18px; overflow-x: auto; padding-bottom: 4px; }
+  .day {
+    flex: 0 0 auto; min-width: 84px; text-align: center;
+    padding: 12px 8px; border-radius: 12px; background: var(--bg-sunk);
+  }
+  .day .dow { font-size: 12px; color: var(--ink-dim); letter-spacing: 0.04em; }
+  .day .ic { font-size: 24px; margin: 6px 0; }
+  .day .hl { font-size: 14px; }
+  .day .hl .hi { font-weight: 700; }
+  .day .hl .lo { color: var(--ink-dim); margin-left: 4px; }
+  .day .pop { font-size: 11px; color: var(--cool); margin-top: 3px; min-height: 14px; }
+  .fc-empty { color: var(--ink-dim); font-size: 14px; }
+  .fc-empty code { color: var(--ink); background: var(--bg-sunk); padding: 1px 6px; border-radius: 5px; }
+
+  /* --- hourly strip -------------------------------------------------------- */
+  .fc-sub { font-size: 12px; text-transform: uppercase; letter-spacing: 0.12em;
+            color: var(--ink-faint); margin: 18px 0 8px; }
+  .hourly { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .hour { flex: 0 0 auto; min-width: 60px; text-align: center; padding: 8px 6px;
+          border-radius: 10px; background: var(--bg-sunk); }
+  .hour .hr { font-size: 12px; color: var(--ink-dim); }
+  .hour .ic { font-size: 18px; margin: 4px 0; }
+  .hour .tp { font-size: 14px; font-weight: 600; }
+  .hour .pp { font-size: 11px; color: var(--cool); margin-top: 2px; min-height: 14px; }
+
+  /* --- radar map ----------------------------------------------------------- */
+  .radar {
+    background: var(--bg-raised); border: 1px solid var(--line);
+    border-radius: 16px; padding: clamp(16px, 3vw, 22px) clamp(18px, 3vw, 24px);
+    margin-bottom: 26px;
+  }
+  .radar-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .radar-head h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  #radar-body { margin-top: 16px; }
+  #radar-map { height: 360px; border-radius: 12px; overflow: hidden; background: var(--bg-sunk); }
+  #radar-map.leaflet-container { font-family: inherit; }
+  .leaflet-container { background: var(--bg-sunk) !important; }
+  .radar-controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .radar-controls .rtime { font-size: 13px; color: var(--ink-dim); }
+  .radar-controls .rtime b { color: var(--ink); }
+  .radar-controls .tag { font-size: 11px; color: var(--cool); border: 1px solid var(--line);
+                         border-radius: 5px; padding: 1px 6px; }
+  #radar-status { font-size: 13px; color: var(--ink-dim); }
+
+  /* --- rooms (one horizontally scrollable strip) --------------------------- */
+  .rooms-strip {
+    display: flex; gap: 12px; overflow-x: auto;
+    padding: 2px 2px 14px; scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+  }
+  .rooms-strip::-webkit-scrollbar { height: 8px; }
+  .rooms-strip::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+  .room {
+    flex: 0 0 192px; scroll-snap-align: start;
+    background: var(--bg-raised); border: 1px solid var(--line);
+    border-radius: 14px; padding: 14px 14px 10px;
+  }
+  .room-name { font-size: 15px; font-weight: 600; }
+  .room-sub { font-size: 12px; color: var(--ink-dim); margin-bottom: 10px; }
+  .room-temp { font-size: 34px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+  .room-temp .u { font-size: 15px; color: var(--ink-dim); font-weight: 500; margin-left: 2px; }
+  .room-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+  .chip {
+    font-size: 12px; color: var(--ink-dim); background: var(--bg-sunk);
+    border-radius: 6px; padding: 2px 7px;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+  .chip.heat-on { color: var(--warm); }
+  .chip.delta { background: transparent; border: 1px solid var(--line); color: var(--ink-dim); }
+  .chip.delta b { color: var(--ink); }
+  .chip.delta .src { color: var(--ink-faint); }
+  .room-trace { margin-top: 10px; height: 28px; }
+  .room-trace svg { width: 100%; height: 28px; display: block; }
+
+  /* --- credit -------------------------------------------------------------- */
+  .credit {
+    margin-top: 30px; padding-top: 16px; border-top: 1px solid var(--line);
+    font-size: 12px; color: var(--ink-faint); text-align: center;
+  }
+  .credit a { color: var(--ink-dim); text-decoration: none; }
+  .credit a:hover { color: var(--ink); }
+
+  /* --- banner -------------------------------------------------------------- */
+  .banner {
+    display: none; background: var(--bg-sunk); border: 1px solid var(--line);
+    border-left: 3px solid var(--warm); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 20px; font-size: 14px; color: var(--ink-dim);
+  }
+  .banner.show { display: block; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .card, .hero { animation: rise 0.4s ease both; }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="brand">
+      <span class="glyph" aria-hidden="true">◈</span>
+      <h1>Aether</h1>
+      <span class="updated mono" id="updated" aria-live="polite">connecting…</span>
+    </div>
+    <div class="controls">
+      <button class="ghost" id="refresh" type="button">Refresh</button>
+      <button class="ghost" id="theme" type="button" aria-label="Toggle light or dark theme">Theme</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" role="status"></div>
+
+  <!-- Hero + cards are rendered from the catalog Flask passes in. -->
+  <main id="board" aria-label="Sensor readings"></main>
+
+</div>
+
+<!-- Sensor catalog from sensors.yaml, handed over by Flask. -->
+<script id="catalog" type="application/json">
+  {{ sensors | tojson }}
+</script>
+<script id="cfg" type="application/json">
+  {{ settings | tojson }}
+</script>
+
+<script>
+const SENSORS  = JSON.parse(document.getElementById("catalog").textContent);
+const SETTINGS = JSON.parse(document.getElementById("cfg").textContent);
+const UNITS    = (SETTINGS.units) || { temperature: "°C", humidity: "%", co2: "ppm", pressure: "hPa" };
+const REFRESH_MS = 60000;
+
+// ---- theme -----------------------------------------------------------------
+const root = document.documentElement;
+(function initTheme(){
+  const saved = localStorage.getItem("aether-theme");
+  if (saved) root.setAttribute("data-theme", saved);
+  else if (window.matchMedia("(prefers-color-scheme: light)").matches) root.setAttribute("data-theme","light");
+})();
+document.getElementById("theme").addEventListener("click", () => {
+  const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  root.setAttribute("data-theme", next);
+  localStorage.setItem("aether-theme", next);
+  drawAllTraces();  // recolor traces for the new theme
+});
+
+// ---- sparkline (inline SVG path) -------------------------------------------
+function buildPath(points, w, h, pad){
+  if (!points || points.length < 2) return null;
+  const ys = points.map(p => p[1]);
+  const xs = points.map(p => p[0]);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const spanY = (maxY - minY) || 1, spanX = (maxX - minX) || 1;
+  const px = t => pad + ((t - minX) / spanX) * (w - 2*pad);
+  const py = v => (h - pad) - ((v - minY) / spanY) * (h - 2*pad);
+  let d = `M ${px(xs[0]).toFixed(1)} ${py(ys[0]).toFixed(1)}`;
+  for (let i = 1; i < points.length; i++) d += ` L ${px(xs[i]).toFixed(1)} ${py(ys[i]).toFixed(1)}`;
+  const area = d + ` L ${px(xs[xs.length-1]).toFixed(1)} ${h} L ${px(xs[0]).toFixed(1)} ${h} Z`;
+  return { line: d, area, minY, maxY };
+}
+
+function renderTrace(el, points, opts){
+  const w = el.clientWidth || 600, h = opts.h, pad = opts.pad || 4;
+  const built = buildPath(points, w, h, pad);
+  if (!built){ el.innerHTML = ""; return; }
+  const stroke = getComputedStyle(root).getPropertyValue("--warm").trim();
+  const gradId = "g" + Math.random().toString(36).slice(2,8);
+  el.innerHTML =
+    `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+       <defs><linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+         <stop offset="0" stop-color="var(--trace-from)"/>
+         <stop offset="1" stop-color="var(--trace-to)"/>
+       </linearGradient></defs>
+       <path d="${built.area}" fill="url(#${gradId})"/>
+       <path d="${built.line}" fill="none" stroke="${stroke}" stroke-width="${opts.sw||2}"
+             stroke-linejoin="round" stroke-linecap="round"/>
+     </svg>`;
+}
+
+// Hero trace: same look as renderTrace, plus stored geometry + overlay
+// elements so the pointer tooltip can snap to data points.
+function renderHeroTrace(el, points){
+  el.innerHTML = "";
+  if (!points || points.length < 2) return;
+  const w = el.clientWidth || 600, h = el.clientHeight || 90, pad = 6;
+  const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), spanX = (maxX - minX) || 1;
+  const minY = Math.min(...ys), maxY = Math.max(...ys), spanY = (maxY - minY) || 1;
+  const px = t => pad + ((t - minX) / spanX) * (w - 2*pad);
+  const py = v => (h - pad) - ((v - minY) / spanY) * (h - 2*pad);
+  let d = `M ${px(xs[0]).toFixed(1)} ${py(ys[0]).toFixed(1)}`;
+  for (let i = 1; i < points.length; i++) d += ` L ${px(xs[i]).toFixed(1)} ${py(ys[i]).toFixed(1)}`;
+  const area = d + ` L ${px(xs[xs.length-1]).toFixed(1)} ${h} L ${px(xs[0]).toFixed(1)} ${h} Z`;
+  const stroke = getComputedStyle(root).getPropertyValue("--warm").trim();
+  const gid = "hg" + Math.random().toString(36).slice(2,7);
+  el.innerHTML =
+    `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+       <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+         <stop offset="0" stop-color="var(--trace-from)"/><stop offset="1" stop-color="var(--trace-to)"/>
+       </linearGradient></defs>
+       <path d="${area}" fill="url(#${gid})"/>
+       <path d="${d}" fill="none" stroke="${stroke}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+       <line class="hover-guide" y1="0" y2="${h}" stroke="${stroke}" stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
+       <circle class="hover-dot" r="3.5" fill="${stroke}" stroke="var(--bg-raised)" stroke-width="1.5" opacity="0"/>
+     </svg>
+     <div class="trace-tip" hidden></div>`;
+  el._trace = { points, w, h, pad, minX, spanX, px, py };
+}
+
+// Attach pointer handlers once to the hero trace container; they read the
+// fresh geometry stored on each render, so re-rendering needs no re-binding.
+function setupHeroTooltip(el){
+  if (el._tipBound) return;
+  el._tipBound = true;
+  const move = (ev) => {
+    const g = el._trace; if (!g) return;
+    const rect = el.getBoundingClientRect();
+    const x = ev.clientX - rect.left;
+    const t = g.minX + ((x - g.pad) / (g.w - 2*g.pad)) * g.spanX;
+    let idx = 0, best = Infinity;
+    for (let i = 0; i < g.points.length; i++){
+      const dd = Math.abs(g.points[i][0] - t);
+      if (dd < best){ best = dd; idx = i; }
+    }
+    const ts = g.points[idx][0], val = g.points[idx][1];
+    const cx = g.px(ts), cy = g.py(val);
+    const svg = el.querySelector("svg"); if (!svg) return;
+    const guide = svg.querySelector(".hover-guide");
+    const dot = svg.querySelector(".hover-dot");
+    guide.setAttribute("x1", cx); guide.setAttribute("x2", cx); guide.setAttribute("opacity", "0.45");
+    dot.setAttribute("cx", cx); dot.setAttribute("cy", cy); dot.setAttribute("opacity", "1");
+    const tip = el.querySelector(".trace-tip");
+    const time = new Date(ts * 1000).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+    tip.textContent = `${val.toFixed(1)}° · ${time}`;
+    tip.hidden = false;
+    const tw = tip.offsetWidth || 70;
+    tip.style.left = Math.max(0, Math.min(cx - tw/2, g.w - tw)) + "px";
+    tip.style.top = Math.max(0, cy - 30) + "px";
+  };
+  const hide = () => {
+    const svg = el.querySelector("svg"); if (!svg) return;
+    svg.querySelector(".hover-guide").setAttribute("opacity", "0");
+    svg.querySelector(".hover-dot").setAttribute("opacity", "0");
+    const tip = el.querySelector(".trace-tip"); if (tip) tip.hidden = true;
+  };
+  el.addEventListener("pointermove", move);
+  el.addEventListener("pointerdown", move);
+  el.addEventListener("pointerleave", hide);
+  el.addEventListener("pointercancel", hide);
+}
+
+// ---- radar (lazy Leaflet; DWD-WN animated, or RainViewer) ------------------
+let leafletReady = null;
+function loadLeaflet(){
+  if (leafletReady) return leafletReady;
+  leafletReady = new Promise((resolve, reject) => {
+    const css = document.createElement("link");
+    css.rel = "stylesheet"; css.href = "/static/leaflet/leaflet.css";
+    document.head.appendChild(css);
+    const js = document.createElement("script");
+    js.src = "/static/leaflet/leaflet.js";
+    js.onload = resolve; js.onerror = reject;
+    document.head.appendChild(js);
+  });
+  return leafletReady;
+}
+
+const DWD_WMS = "https://maps.dwd.de/geoserver/dwd/wms";
+const OSM_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+// Frames are normalized to { ms, path? (RainViewer), iso? (DWD) }.
+let radarMap = null, radarMode = "", radarFrames = [], radarLayers = {},
+    radarIdx = 0, radarTimer = null, dwdLiveTimer = null,
+    rvHost = "", dwdWms = "", dwdLayerName = "";
+
+async function initRadar(){
+  await loadLeaflet();
+  const loc = SETTINGS.location || {};
+  const zoom = (SETTINGS.map && SETTINGS.map.zoom) || 8;
+  const source = (SETTINGS.map && SETTINGS.map.radar_source) || "dwd";
+  radarMap = L.map("radar-map", { zoomControl: true }).setView([loc.latitude, loc.longitude], zoom);
+  L.tileLayer(OSM_URL, { maxZoom: 19, attribution: "© OpenStreetMap" }).addTo(radarMap);
+  L.circleMarker([loc.latitude, loc.longitude], {
+    radius: 6, color: getComputedStyle(root).getPropertyValue("--warm").trim(),
+    weight: 2, fillOpacity: 0.5
+  }).addTo(radarMap);
+  if (source === "rainviewer") await initRainviewer();
+  else await initDwd();
+}
+
+function setStatus(t){ document.getElementById("radar-status").textContent = t || ""; }
+function setPlayBtn(playing){
+  const p = document.getElementById("radar-play");
+  if (p) p.textContent = playing ? "Pause" : "Play";
+}
+
+// --- source: DWD WN (animated via WMS TIME) --------------------------------
+async function initDwd(){
+  try {
+    const data = await (await fetch("/api/radar?source=dwd")).json();
+    dwdWms = data.wms || DWD_WMS;
+    if (!data.times || !data.times.length){ initDwdLive(data.live_layer); return; }
+    radarMode = "dwd";
+    dwdLayerName = data.layer;
+    radarFrames = data.times.map(t => ({ ms: Date.parse(t), iso: t }));
+    const now = Date.now();
+    radarIdx = 0;
+    for (let i = 0; i < radarFrames.length; i++){ if (radarFrames[i].ms <= now) radarIdx = i; }
+    showFrame(radarIdx);
+    playRadar();
+  } catch (e){ initDwdLive("dwd:RX-Produkt"); }
+}
+
+// Fallback when no time dimension is available: a single live layer + refresh.
+function initDwdLive(layer){
+  radarMode = "dwd-live";
+  const live = L.tileLayer.wms(dwdWms || DWD_WMS, {
+    layers: layer || "dwd:RX-Produkt", format: "image/png", transparent: true,
+    version: "1.3.0", opacity: 0.6, attribution: "Radar © DWD"
+  });
+  live.addTo(radarMap); radarLayers[0] = live;
+  const tag = document.getElementById("radar-tag");
+  tag.hidden = false; tag.textContent = "DWD · live";
+  const play = document.getElementById("radar-play"); if (play) play.textContent = "Refresh";
+  setLiveTime();
+  if (dwdLiveTimer) clearInterval(dwdLiveTimer);
+  dwdLiveTimer = setInterval(() => { live.setParams({ _ts: Date.now() }); setLiveTime(); }, 300000);
+}
+function setLiveTime(){
+  document.getElementById("radar-time").textContent =
+    new Date().toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+}
+
+// --- source: RainViewer (animated XYZ) -------------------------------------
+async function initRainviewer(){
+  try {
+    const data = await (await fetch("/api/radar?source=rainviewer")).json();
+    if (data.error || !data.radar){ setStatus("Radar unavailable."); return; }
+    radarMode = "rainviewer";
+    rvHost = data.host;
+    const past = data.radar.past || [], nowcast = data.radar.nowcast || [];
+    radarFrames = [...past, ...nowcast].map(f => ({ ms: f.time * 1000, path: f.path }));
+    if (!radarFrames.length){ setStatus("No radar frames available."); return; }
+    radarIdx = Math.max(0, past.length - 1);
+    showFrame(radarIdx);
+    playRadar();
+  } catch (e){ setStatus("Radar unavailable."); }
+}
+
+// --- shared animator -------------------------------------------------------
+function frameLayer(i){
+  if (radarLayers[i]) return radarLayers[i];
+  let layer;
+  if (radarMode === "rainviewer"){
+    layer = L.tileLayer(`${rvHost}${radarFrames[i].path}/256/{z}/{x}/{y}/2/1_1.png`,
+      { opacity: 0.65, tileSize: 256, maxZoom: 19, attribution: "Radar © RainViewer" });
+  } else {  // dwd
+    layer = L.tileLayer.wms(dwdWms, {
+      layers: dwdLayerName, format: "image/png", transparent: true, version: "1.3.0",
+      opacity: 0.6, attribution: "Radar © DWD", time: radarFrames[i].iso });
+  }
+  radarLayers[i] = layer; return layer;
+}
+
+function showFrame(i){
+  for (const k in radarLayers){
+    if (+k !== i && radarMap.hasLayer(radarLayers[k])) radarMap.removeLayer(radarLayers[k]);
+  }
+  frameLayer(i).addTo(radarMap);
+  const ms = radarFrames[i].ms;
+  document.getElementById("radar-time").textContent =
+    new Date(ms).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  const forecast = ms > Date.now() + 30000;
+  const tag = document.getElementById("radar-tag");
+  tag.hidden = false;
+  tag.textContent = radarMode === "dwd"
+    ? (forecast ? "DWD · forecast" : "DWD")
+    : (forecast ? "nowcast" : "RainViewer");
+}
+
+function playRadar(){
+  stopRadar();
+  if (radarFrames.length < 2){ return; }
+  radarTimer = setInterval(() => {
+    radarIdx = (radarIdx + 1) % radarFrames.length;
+    showFrame(radarIdx);
+  }, 650);
+  setPlayBtn(true);
+}
+function stopRadar(){
+  if (radarTimer){ clearInterval(radarTimer); radarTimer = null; }
+  if (radarMode !== "dwd-live") setPlayBtn(false);
+}
+
+function setupRadar(){
+  const toggle = document.getElementById("radar-toggle");
+  if (!toggle) return;
+  toggle.addEventListener("click", async () => {
+    const body = document.getElementById("radar-body");
+    if (body.hidden){
+      body.hidden = false;
+      toggle.textContent = "Hide radar";
+      if (!radarMap){ await initRadar(); }
+      else {
+        setTimeout(() => radarMap.invalidateSize(), 80);
+        if (radarMode === "dwd-live"){
+          const lyr = radarLayers[0]; if (lyr) lyr.setParams({ _ts: Date.now() }); setLiveTime();
+          dwdLiveTimer = setInterval(() => { radarLayers[0].setParams({ _ts: Date.now() }); setLiveTime(); }, 300000);
+        } else { playRadar(); }
+      }
+    } else {
+      body.hidden = true;
+      toggle.textContent = "Show radar";
+      stopRadar();
+      if (dwdLiveTimer){ clearInterval(dwdLiveTimer); dwdLiveTimer = null; }
+    }
+  });
+  const play = document.getElementById("radar-play");
+  if (play) play.addEventListener("click", () => {
+    if (radarMode === "dwd-live"){
+      const lyr = radarLayers[0]; if (lyr) lyr.setParams({ _ts: Date.now() }); setLiveTime(); return;
+    }
+    if (radarTimer) stopRadar(); else playRadar();
+  });
+}
+
+// ---- markup ----------------------------------------------------------------
+function fmt(v, metric){
+  if (v === null || v === undefined) return null;
+  return metric === "co2" || metric === "pressure" ? Math.round(v).toString() : v.toFixed(1);
+}
+
+function buildBoard(){
+  const hero = SENSORS.find(s => s.hero) || SENSORS[0];
+  const outdoor = SENSORS.filter(s => s.zone === "outdoor" && s !== hero);
+  const indoor  = SENSORS.filter(s => s.zone === "indoor");
+
+  let html = "";
+  if (hero){
+    html += `
+    <section class="hero" aria-labelledby="hero-label">
+      <div class="eyebrow" id="hero-label">${hero.label}</div>
+      <div class="place">${hero.sublabel || ""}</div>
+      <div class="reading">
+        <span class="temp mono" id="${hero.id}-temperature">–</span>
+        <span class="unit mono">${UNITS.temperature}</span>
+      </div>
+      <div class="secondary">
+        <span>Humidity <b class="mono" id="${hero.id}-humidity">–</b> ${UNITS.humidity}</span>
+      </div>
+      <div class="hero-trace" id="${hero.id}-trace"></div>
+      <div class="trace-axis mono"><span>−${SETTINGS.history_hours||24}h</span><span>now</span></div>
+      <span class="sr-only" id="${hero.id}-sr" aria-live="polite"></span>
+    </section>`;
+  }
+
+  // Forecast slot — filled asynchronously by loadForecast()
+  html += `<section class="forecast" id="forecast" aria-label="Forecast">
+             <div class="fc-empty">Loading forecast…</div></section>`;
+
+  // Outdoor comparison (e.g. Shelly BLU H&T) — only renders if such sensors exist
+  if (outdoor.length){
+    html += `<div class="section-label">Outdoor comparison</div>
+             <div class="grid">${outdoor.map(outdoorCard).join("")}</div>`;
+  }
+
+  // Rooms — one horizontally scrollable strip, in catalog order
+  if (indoor.length){
+    html += `<div class="section-label">Rooms</div>
+             <div class="rooms-strip" role="list">${indoor.map(roomFor).join("")}</div>`;
+  }
+
+  // Radar map — lazy-loaded, opt-out via settings.map.radar: false
+  if (!SETTINGS.map || SETTINGS.map.radar !== false){
+    html += `
+      <section class="radar" id="radar" aria-label="Radar map">
+        <div class="radar-head">
+          <h2>Radar</h2>
+          <button class="ghost" id="radar-toggle" type="button">Show radar</button>
+        </div>
+        <div id="radar-body" hidden>
+          <div id="radar-map" role="img" aria-label="Precipitation radar map"></div>
+          <div class="radar-controls">
+            <button class="ghost" id="radar-play" type="button">Pause</button>
+            <span class="rtime">Frame: <b id="radar-time">—</b></span>
+            <span class="tag" id="radar-tag" hidden>nowcast</span>
+            <span id="radar-status"></span>
+          </div>
+        </div>
+      </section>`;
+  }
+
+  html += `<footer class="credit">Readings via Prometheus · Weather data by
+             <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo.com</a></footer>`;
+
+  document.getElementById("board").innerHTML = html;
+}
+
+// Compact room card for the horizontal strip.
+function roomFor(s){
+  if (s.sources) return roomMulti(s);
+  const labels = { humidity: "Hum", co2: "CO₂", heating: "Heat", battery: "Batt" };
+  const extras = s.metrics.filter(m => m !== "temperature").map(m => {
+    const name = labels[m] || (m[0].toUpperCase()+m.slice(1));
+    const unit = UNITS[m] ? ` ${UNITS[m]}` : "";
+    return `<span class="chip" id="${s.id}-${m}-chip">${name} <b class="mono" id="${s.id}-${m}">–</b>${unit}</span>`;
+  }).join("");
+  return `
+    <article class="room zone-${s.zone}" role="listitem" aria-labelledby="${s.id}-label">
+      <div class="room-name" id="${s.id}-label"><span class="zone-dot" aria-hidden="true"></span>${s.label}</div>
+      <div class="room-sub">${s.sublabel || ""}</div>
+      <div class="room-temp mono"><span id="${s.id}-temperature">–</span><span class="u">${UNITS.temperature}</span></div>
+      <div class="room-meta">${extras}</div>
+      <div class="room-trace" id="${s.id}-trace"></div>
+      <span class="sr-only" id="${s.id}-sr" aria-live="polite"></span>
+    </article>`;
+}
+
+// Grouped room: primary source drives the big value + its own chips; every
+// other source appears as a Δ deviation (shared metrics) or its own chip
+// (metrics unique to that source, e.g. Tado heating).
+const SHORT = { humidity: "rH", co2: "CO₂", battery: "Batt", heating: "Heat" };
+function roomMulti(s){
+  const prim = s.primary;
+  const primMetrics = s.sources[prim];
+  const labels = { humidity: "Hum", co2: "CO₂", heating: "Heat", battery: "Batt" };
+
+  // primary's non-temperature metrics → normal chips
+  let chips = primMetrics.filter(m => m !== "temperature").map(m => {
+    const name = labels[m] || (m[0].toUpperCase()+m.slice(1));
+    const unit = UNITS[m] ? ` ${UNITS[m]}` : "";
+    return `<span class="chip" id="${s.id}-${prim}-${m}-chip">${name} <b class="mono" id="${s.id}-${prim}-${m}">–</b>${unit}</span>`;
+  }).join("");
+
+  // other sources
+  for (const o of Object.keys(s.sources)){
+    if (o === prim) continue;
+    const srcName = o[0].toUpperCase() + o.slice(1);
+    for (const m of s.sources[o]){
+      const shared = (m === "temperature") || primMetrics.includes(m);
+      if (shared){
+        // Δ deviation vs primary
+        const short = m === "temperature" ? "" : (SHORT[m] ? SHORT[m]+" " : "");
+        chips += `<span class="chip delta"><span class="src">${srcName}</span> ${short}<b class="mono" id="${s.id}-${o}-${m}-delta">–</b></span>`;
+      } else {
+        // metric unique to this source → its own chip
+        const name = labels[m] || (m[0].toUpperCase()+m.slice(1));
+        const unit = UNITS[m] ? ` ${UNITS[m]}` : "";
+        chips += `<span class="chip" id="${s.id}-${o}-${m}-chip">${name} <b class="mono" id="${s.id}-${o}-${m}">–</b>${unit}</span>`;
+      }
+    }
+  }
+
+  return `
+    <article class="room zone-${s.zone}" role="listitem" aria-labelledby="${s.id}-label">
+      <div class="room-name" id="${s.id}-label"><span class="zone-dot" aria-hidden="true"></span>${s.label}</div>
+      <div class="room-sub">${s.sublabel || ""}</div>
+      <div class="room-temp mono"><span id="${s.id}-${prim}-temperature">–</span><span class="u">${UNITS.temperature}</span></div>
+      <div class="room-meta">${chips}</div>
+      <div class="room-trace" id="${s.id}-trace"></div>
+      <span class="sr-only" id="${s.id}-sr" aria-live="polite"></span>
+    </article>`;
+}
+
+// Full card for outdoor comparison sensors.
+function outdoorCard(s){
+  const extras = s.metrics.filter(m => m !== "temperature").map(m =>
+    `<span>${m[0].toUpperCase()+m.slice(1)} <b class="mono" id="${s.id}-${m}">–</b> ${UNITS[m]||""}</span>`
+  ).join("");
+  return `
+    <article class="card zone-${s.zone}" aria-labelledby="${s.id}-label">
+      <div class="label" id="${s.id}-label"><span class="zone-dot" aria-hidden="true"></span>${s.label}</div>
+      <div class="sub">${s.sublabel || ""}</div>
+      <div class="temp mono"><span id="${s.id}-temperature">–</span><span class="unit">${UNITS.temperature}</span></div>
+      <div class="extras">${extras}</div>
+      <div class="card-trace" id="${s.id}-trace"></div>
+      <span class="sr-only" id="${s.id}-sr" aria-live="polite"></span>
+    </article>`;
+}
+
+// ---- forecast --------------------------------------------------------------
+async function loadForecast(){
+  const host = document.getElementById("forecast");
+  if (!host) return;
+  try {
+    const data = await (await fetch("/api/forecast")).json();
+    if (data.configured === false){
+      host.innerHTML = `<div class="fc-empty">Set your town-centre coordinates in <code>sensors.yaml</code> to enable the forecast.</div>`;
+      return;
+    }
+    if (data.error){
+      host.innerHTML = `<div class="fc-empty">Forecast unavailable — Open-Meteo could not be reached.</div>`;
+      return;
+    }
+    const c = data.current;
+    const hours = (data.hourly || []).map((hr, i) => {
+      const label = i === 0 ? "Now" : new Date(hr.time).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+      const pop = (hr.pop || hr.pop === 0) ? `💧${hr.pop}%` : "";
+      const temp = (hr.temp || hr.temp === 0) ? `${Math.round(hr.temp)}°` : "—";
+      return `<div class="hour">
+        <div class="hr">${label}</div>
+        <div class="ic" aria-hidden="true">${hr.code.glyph}</div>
+        <div class="tp mono">${temp}</div>
+        <div class="pp">${pop}</div>
+      </div>`;
+    }).join("");
+    const hourlyBlock = hours
+      ? `<div class="fc-sub">Next hours</div><div class="hourly">${hours}</div>`
+      : "";
+    const days = data.daily.map((d, i) => {
+      const dow = i === 0 ? "Today" : new Date(d.date).toLocaleDateString([], {weekday:"short"});
+      const pop = (d.pop || d.pop === 0) ? `💧${d.pop}%` : "";
+      return `<div class="day">
+        <div class="dow">${dow}</div>
+        <div class="ic" aria-hidden="true">${d.code.glyph}</div>
+        <div class="hl mono"><span class="hi">${Math.round(d.max)}°</span><span class="lo">${Math.round(d.min)}°</span></div>
+        <div class="pop">${pop}</div>
+      </div>`;
+    }).join("");
+    host.innerHTML = `
+      <div class="fc-now">
+        <span class="ic" aria-hidden="true">${c.code.glyph}</span>
+        <div>
+          <div class="t mono">${Math.round(c.temperature)}°</div>
+          <div class="meta">${c.code.label} · feels like <b>${Math.round(c.apparent)}°</b> · ${data.place}</div>
+        </div>
+      </div>
+      ${hourlyBlock}
+      <div class="fc-sub">Next days</div>
+      <div class="daily">${days}</div>
+      <span class="sr-only">Forecast for ${data.place}: now ${Math.round(c.temperature)} degrees, ${c.code.label}.</span>`;
+  } catch (e){
+    host.innerHTML = `<div class="fc-empty">Forecast unavailable.</div>`;
+  }
+}
+
+// Populate a grouped multi-source room: primary values + Δ deviations.
+function updateMulti(s, vals){
+  const prim = s.primary;
+  const pv = vals[prim] || {};
+  for (const m of s.sources[prim]){
+    const el = document.getElementById(`${s.id}-${prim}-${m}`);
+    if (el){ const sh = fmt(pv[m], m); el.textContent = sh === null ? "—" : sh; el.classList.toggle("nodata", sh === null); }
+  }
+  for (const o of Object.keys(s.sources)){
+    if (o === prim) continue;
+    const ov = vals[o] || {};
+    for (const m of s.sources[o]){
+      const shared = (m === "temperature") || s.sources[prim].includes(m);
+      if (shared){
+        const el = document.getElementById(`${s.id}-${o}-${m}-delta`);
+        if (el){
+          const a = ov[m], b = pv[m];
+          if (a == null || b == null){ el.textContent = "—"; el.classList.add("nodata"); }
+          else {
+            const d = a - b;
+            const unit = m === "temperature" ? "°" : (UNITS[m] || "");
+            el.textContent = (d >= 0 ? "+" : "−") + Math.abs(d).toFixed(1) + unit;
+            el.classList.remove("nodata");
+          }
+        }
+      } else {
+        const el = document.getElementById(`${s.id}-${o}-${m}`);
+        if (el){
+          const sh = fmt(ov[m], m); el.textContent = sh === null ? "—" : sh; el.classList.toggle("nodata", sh === null);
+          if (m === "heating"){
+            const chip = document.getElementById(`${s.id}-${o}-heating-chip`);
+            if (chip) chip.classList.toggle("heat-on", (ov[m] || 0) > 0);
+          }
+        }
+      }
+    }
+  }
+  const sr = document.getElementById(`${s.id}-sr`);
+  if (sr){
+    const t = fmt(pv.temperature, "temperature");
+    sr.textContent = `${s.label}: ` + (t ? `${t} degrees (${prim}).` : "temperature unavailable.");
+  }
+}
+
+// ---- data ------------------------------------------------------------------
+async function refresh(){
+  try {
+    const res = await fetch("/api/current");
+    const data = await res.json();
+    const banner = document.getElementById("banner");
+    if (!data.reachable){
+      banner.textContent = "Prometheus is unreachable. Readings below may be stale or empty — check that the monitoring stack is up.";
+      banner.classList.add("show");
+    } else { banner.classList.remove("show"); }
+
+    for (const s of SENSORS){
+      if (s.sources){ updateMulti(s, data.sensors[s.id] || {}); continue; }
+      const vals = data.sensors[s.id] || {};
+      for (const metric of s.metrics){
+        const el = document.getElementById(`${s.id}-${metric}`);
+        if (!el) continue;
+        const shown = fmt(vals[metric], metric);
+        el.textContent = shown === null ? "—" : shown;
+        el.classList.toggle("nodata", shown === null);
+        if (metric === "heating"){
+          const chip = document.getElementById(`${s.id}-heating-chip`);
+          if (chip) chip.classList.toggle("heat-on", (vals[metric] || 0) > 0);
+        }
+      }
+      // accessible summary line per sensor
+      const sr = document.getElementById(`${s.id}-sr`);
+      if (sr){
+        const t = fmt(vals.temperature, "temperature");
+        const h = fmt(vals.humidity, "humidity");
+        sr.textContent = `${s.label}, ${s.sublabel||""}: ` +
+          (t ? `${t} degrees` : "temperature unavailable") +
+          (h ? `, ${h} percent humidity.` : ".");
+      }
+    }
+    const now = new Date();
+    document.getElementById("updated").textContent =
+      "updated " + now.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+  } catch (e){
+    document.getElementById("updated").textContent = "connection error";
+  }
+}
+
+async function drawTrace(s){
+  const el = document.getElementById(`${s.id}-trace`);
+  if (!el) return;
+  try {
+    const src = s.sources ? `&source=${encodeURIComponent(s.primary)}` : "";
+    const res = await fetch(`/api/history?sensor=${encodeURIComponent(s.id)}&metric=temperature${src}`);
+    const data = await res.json();
+    if (s.hero){
+      renderHeroTrace(el, data.points);
+    } else {
+      const h = el.clientHeight || 30;
+      renderTrace(el, data.points, {h, pad:3, sw:1.6});
+    }
+  } catch (e){ /* leave trace empty */ }
+}
+
+let lastPoints = {};
+async function drawAllTraces(){
+  for (const s of SENSORS) await drawTrace(s);
+}
+
+// ---- boot ------------------------------------------------------------------
+buildBoard();
+const heroSensor = SENSORS.find(s => s.hero);
+if (heroSensor){
+  const ht = document.getElementById(`${heroSensor.id}-trace`);
+  if (ht) setupHeroTooltip(ht);
+}
+refresh();
+drawAllTraces();
+loadForecast();
+setupRadar();
+document.getElementById("refresh").addEventListener("click", () => { refresh(); drawAllTraces(); loadForecast(); });
+setInterval(refresh, REFRESH_MS);
+setInterval(drawAllTraces, REFRESH_MS * 5);
+setInterval(loadForecast, REFRESH_MS * 15);   // server caches 20 min anyway
+window.addEventListener("resize", () => { clearTimeout(window.__rz); window.__rz = setTimeout(drawAllTraces, 250); });
+</script>
+</body>
+</html>

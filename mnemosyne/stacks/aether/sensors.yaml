@@ -1,0 +1,216 @@
+# =============================================================================
+# Aether - sensor catalog (Home only)
+# =============================================================================
+# Every tile is defined here, never in code. Adding a sensor = adding a block.
+# No Python changes, no rebuild. Each metric value is a full PromQL expression;
+# the selector must narrow to exactly ONE series (Aether reads the first).
+#
+# Scope: HOME only. All Tado zones below belong to home_id 183129 - a single
+# physical location, i.e. Home (the "(unten)" rooms are the lower floor).
+# Fuchsbau would be a different Tado home_id and is intentionally absent.
+#
+# Discover an exporter's real metric names:
+#   docker exec aether python3 -c "import requests; print([n for n in \
+#     requests.get('http://prometheus:9090/api/v1/label/__name__/values').json()['data'] \
+#     if 'tado' in n.lower()])"
+# =============================================================================
+
+settings:
+  history_hours: 24      # window for the sparkline traces
+  step_seconds: 300      # one point every 5 min
+  forecast_days: 7       # Open-Meteo forecast horizon (1-16)
+  forecast_hours: 24     # hourly strip length (1-48)
+
+  # --- Radar map (Leaflet + OpenStreetMap + radar overlay) ------------------
+  # The map streams tiles from external servers while open. It is lazy-loaded:
+  # nothing loads until you click "Show radar". Set radar: false to hide it.
+  #
+  # radar_source:
+  #   dwd        - DWD radar composite (Germany, ~1 km, animated via WMS TIME).
+  #                Most accurate for German locations. RECOMMENDED here.
+  #   rainviewer - global product, lower resolution, animated past + nowcast.
+  #
+  # dwd_layer - which DWD GeoServer layer to animate. Real names on this server:
+  #   Niederschlagsradar            classic animated rain radar (default)
+  #   Radar_rv_product_1x1km_ger    RV: precipitation incl. 2 h nowcast
+  #   Radar_wn-product_1x1km_ger    WN: composite with prediction
+  #   RADOLAN-RW / RADOLAN-RY       gauge-adjusted hourly/quality-checked
+  map:
+    radar: true
+    radar_source: dwd
+    dwd_layer: Niederschlagsradar
+    zoom: 8
+
+  # --- Forecast location (Open-Meteo) ---------------------------------------
+  # PRIVACY: town-centre coordinates, not your exact address. export_public.py
+  # should treat these as sensitive.
+  location:
+    name: "Home"
+    latitude:  49.580278
+    longitude: 11.256856
+
+  units:
+    temperature: "°C"
+    humidity: "%"
+    co2: "ppm"
+    pressure: "hPa"
+    heating: "%"
+    battery: "%"
+
+sensors:
+
+  # ---------------------------------------------------------------------------
+  # OUTDOOR  (the hero)
+  # ---------------------------------------------------------------------------
+  - id: outdoor_home
+    label: "Outdoor"
+    sublabel: "Home · Netatmo"
+    zone: outdoor
+    hero: true
+    metrics:
+      temperature: 'netatmo_sensor_temperature_celsius{module="Outdoor"}'
+      humidity:    'netatmo_sensor_humidity_percent{module="Outdoor"}'
+
+  # --- Shelly BLU H&T (outdoor, "Vorne", im Strahlungsschutz) ----------------
+  # Cloud-free outdoor reading -> shown in "Outdoor comparison" next to the hero.
+  # battery: BLU H&T is battery-powered; remove the line if it ever reads "—".
+  - id: outdoor_shelly
+    label: "Outdoor"
+    sublabel: "Shelly BLU H&T"
+    zone: outdoor
+    metrics:
+      temperature: 'shelly_temperature_celsius{device="BLU-Vorne"}'
+      humidity:    'shelly_humidity_percent{device="BLU-Vorne"}'
+      battery:     'shelly_battery_percent{device="BLU-Vorne"}'
+
+  # ---------------------------------------------------------------------------
+  # ROOMS  (rendered as one horizontally scrollable strip, in catalog order)
+  # ---------------------------------------------------------------------------
+
+  # --- Grouped rooms (Netatmo lead value + Tado as Δ deviation) --------------
+  # Same physical room, two sensors. Netatmo drives the big value; Tado shows as
+  # Δ vs Netatmo (temperature/humidity) plus its own heating chip. Tado measures
+  # at the radiator valve, Netatmo in the room - the Δ is the real sensor offset,
+  # not noise, so it stays visible rather than being averaged away.
+  - id: wohnzimmer
+    label: "Wohnzimmer"
+    sublabel: "Netatmo · Tado"
+    zone: indoor
+    primary: netatmo
+    sources:
+      netatmo:
+        temperature: 'netatmo_sensor_temperature_celsius{module="Living Room"}'
+        humidity:    'netatmo_sensor_humidity_percent{module="Living Room"}'
+        co2:         'netatmo_sensor_co2_ppm{module="Living Room"}'
+      tado:
+        temperature: 'tado_temperature_measured_celsius{zone_name="Wohnzimmer"}'
+        humidity:    'tado_humidity_measured_percentage{zone_name="Wohnzimmer"}'
+        heating:     'tado_heating_power_percentage{zone_name="Wohnzimmer"}'
+
+  - id: office
+    label: "Office"
+    sublabel: "Netatmo · Tado"
+    zone: indoor
+    primary: netatmo
+    sources:
+      netatmo:
+        temperature: 'netatmo_sensor_temperature_celsius{module="Office"}'
+        humidity:    'netatmo_sensor_humidity_percent{module="Office"}'
+        co2:         'netatmo_sensor_co2_ppm{module="Office"}'
+      tado:
+        temperature: 'tado_temperature_measured_celsius{zone_name="Office"}'
+        humidity:    'tado_humidity_measured_percentage{zone_name="Office"}'
+        heating:     'tado_heating_power_percentage{zone_name="Office"}'
+
+  # --- Shelly H&T Gen3 (indoor, Dachboden) -----------------------------------
+  - id: indoor_shelly_dachboden
+    label: "Dachboden"
+    sublabel: "Shelly H&T Gen3"
+    zone: indoor
+    metrics:
+      temperature: 'shelly_temperature_celsius{device="HT-Dachboden"}'
+      humidity:    'shelly_humidity_percent{device="HT-Dachboden"}'
+      battery:     'shelly_battery_percent{device="HT-Dachboden"}'
+
+  # --- Tado rooms · upper floor ----------------------------------------------
+  - id: tado_kueche
+    label: "Küche"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Küche"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Küche"}'
+      heating:     'tado_heating_power_percentage{zone_name="Küche"}'
+
+  - id: tado_schlafzimmer
+    label: "Schlafzimmer"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Schlafzimmer"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Schlafzimmer"}'
+      heating:     'tado_heating_power_percentage{zone_name="Schlafzimmer"}'
+
+  - id: tado_bad
+    label: "Bad"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Bad"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Bad"}'
+      heating:     'tado_heating_power_percentage{zone_name="Bad"}'
+
+  # --- Tado rooms · lower floor (unten) --------------------------------------
+  - id: tado_wohnzimmer_unten
+    label: "Wohnzimmer (unten)"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Wohnzimmer (unten)"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Wohnzimmer (unten)"}'
+      heating:     'tado_heating_power_percentage{zone_name="Wohnzimmer (unten)"}'
+
+  - id: tado_kueche_unten
+    label: "Küche (unten)"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Küche (unten)"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Küche (unten)"}'
+      heating:     'tado_heating_power_percentage{zone_name="Küche (unten)"}'
+
+  - id: tado_schlafzimmer_unten
+    label: "Schlafzimmer (unten)"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Schlafzimmer (unten)"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Schlafzimmer (unten)"}'
+      heating:     'tado_heating_power_percentage{zone_name="Schlafzimmer (unten)"}'
+
+  - id: tado_mitte_unten
+    label: "Mitte (unten)"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Mitte (unten)"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Mitte (unten)"}'
+      heating:     'tado_heating_power_percentage{zone_name="Mitte (unten)"}'
+
+  - id: tado_hinten_unten
+    label: "Hinten (unten)"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Hinten (unten)"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Hinten (unten)"}'
+      heating:     'tado_heating_power_percentage{zone_name="Hinten (unten)"}'
+
+  - id: tado_bad_unten
+    label: "Bad (unten)"
+    sublabel: "Tado"
+    zone: indoor
+    metrics:
+      temperature: 'tado_temperature_measured_celsius{zone_name="Bad (unten)"}'
+      humidity:    'tado_humidity_measured_percentage{zone_name="Bad (unten)"}'
+      heating:     'tado_heating_power_percentage{zone_name="Bad (unten)"}'

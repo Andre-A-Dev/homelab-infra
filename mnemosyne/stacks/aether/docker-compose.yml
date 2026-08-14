@@ -1,0 +1,28 @@
+services:
+  aether:
+    build: .
+    image: aether-app
+    container_name: aether
+    environment:
+      # Reached over the monitoring network (see networks below).
+      - PROMETHEUS_URL=http://prometheus:9090
+      - AETHER_PORT=8050
+    volumes:
+      # Bind-mounted so editing sensors/UI needs only `docker compose restart aether`.
+      - ./sensors.yaml:/app/sensors.yaml:ro
+      - ./templates:/app/templates:ro
+    networks:
+      - caddy_proxy    # so Caddy can reach aether:8050
+      - monitoring     # so aether can reach prometheus:9090
+    restart: unless-stopped
+
+networks:
+  caddy_proxy:
+    external: true
+  monitoring:
+    external: true
+    # ⚠️ Verify the real network name on Mnemosyne and adjust if needed:
+    #     docker network ls | grep monitoring
+    # Compose prefixes networks with the project dir, so the monitoring stack's
+    # network is typically "monitoring_monitoring" or "monitoring_default".
+    name: monitoring
