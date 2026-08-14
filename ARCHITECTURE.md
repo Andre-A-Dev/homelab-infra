@@ -147,6 +147,23 @@ For metrics that cannot be scraped live (Pi 5 fan level, Tailscale status, backu
 
 A custom Python exporter (`shelly-exporter`) polls Shelly smart plugs via their local REST API — Gen1 devices via `/status`, Gen2/3 via `/rpc/Switch.GetStatus`. No cloud, no MQTT. Devices are configured via the `SHELLY_DEVICES` environment variable in the format `name:host:gen`. The exporter runs on Mnemosyne on port `9117`.
 
+**Midea Exporter**
+
+A custom Python exporter (`midea-exporter`) polls a Midea WiFi air conditioner
+over the local LAN protocol via `msmart-ng`. Midea's local protocol needs a
+`token`/`key` pair that only the cloud API hands out, which would normally
+mean a permanent cloud dependency for a device on the local network. The
+exporter instead runs cloud discovery exactly once, caches the resulting
+credentials to disk, and authenticates locally on every run after — the
+device can be firewalled off the internet once the cache exists. The exporter
+runs on Mnemosyne on port `9116`. See
+`mnemosyne/stacks/monitoring/midea_exporter/README.md` for the credential
+quirks that make this necessary.
+
+**Prusa Exporter**
+
+A custom Python exporter (`prusa-exporter`) polls the Prusa MK4S (Pygmalion) via PrusaLink's local `/api/v1/status` endpoint — no Prusa Connect, no cloud. The firmware only accepts HTTP Digest auth (`maker` + password) on this endpoint; the API-key header returns 401, verified empirically, so the exporter is configured with `PRUSA_PASSWORD` rather than `PRUSA_API_KEY`. On an unreachable printer it emits only `prusa_up 0` and nothing else, so a dead scrape shows as a gap in Grafana rather than stale-but-green data. Print done/fail notifications are deliberately left to the Prusa mobile app rather than routed through Alertmanager/ntfy — that would just be a duplicate notification for the same event. The exporter runs on Mnemosyne on port `9118`.
+
 **Alertmanager**
 
 Prometheus routes firing alerts to Alertmanager (`alertmanager.home`, port `9093`), which forwards them to ntfy topics. Separate topics are configured per severity (critical / warning) and per alert group (Mnemosyne infrastructure, Viessmann heating pump). Alertmanager runs in the same `monitoring` stack as Prometheus; its configuration is templated at startup so ntfy topic names stay out of the committed file.
@@ -174,6 +191,7 @@ home FritzBox"]
         Shelly["Shelly Exporter :9117"]
         Meross["Meross Exporter :9114"]
         Midea["Midea Exporter :9116"]
+        Prusa["Prusa Exporter :9118"]
         Wakapi["Wakapi :3000
 /api/metrics"]
         Gitea_Exp["Gitea Exporter"]
@@ -203,7 +221,7 @@ DECT + system metrics"]
         Windows_E["windows_exporter :9182"]
     end
 
-    Prometheus --> NE_M & Blackbox & Netatmo & Fritz_H & Tado & NC_Exp & cAdvisor & Shelly & Meross & Midea & Wakapi & Gitea_Exp
+    Prometheus --> NE_M & Blackbox & Netatmo & Fritz_H & Tado & NC_Exp & cAdvisor & Shelly & Meross & Midea & Prusa & Wakapi & Gitea_Exp
     Prometheus --> NE_B & PH_B
     Prometheus --> NE_Z & PH_Z & Fritz_P & Fritz_Lua
     Prometheus --> NE_H
@@ -213,6 +231,95 @@ DECT + system metrics"]
     Grafana["Grafana
 Mnemosyne :3000"] --> Prometheus
 ```
+
+---
+
+## Aether: A Weather Frontend, Not a New Integration
+
+Aether (`weather.home`) is a Flask console showing Netatmo, Tado, and Shelly
+readings plus an Open-Meteo forecast — a calmer, glanceable alternative to a
+Grafana dashboard for a specific everyday question ("do I need a jacket").
+
+**Why not Home Assistant?**
+
+The obvious way to get a nice weather UI is Home Assistant. It was rejected
+because Netatmo, Tado, and Shelly are already integrated once each, via their
+Prometheus exporters. Adding Home Assistant would mean re-integrating all three
+devices a second time — a second OAuth flow, a second polling schedule, a
+second place credentials can go stale. That is integration work with no new
+capability behind it. Aether queries the Prometheus HTTP API directly and
+stores nothing itself; it is a display, not a second source of truth.
+
+**Sensors are config, not code**
+
+Every tile in `sensors.yaml` is a PromQL expression plus a label. Adding a
+sensor or a room is a YAML block, not a Python change or a rebuild — the same
+"boring, auditable" bias as everywhere else in this repo. See
+`mnemosyne/stacks/aether/README.md` for the full catalog format.
+
+**Scope: Home only.** Fuchsbau sensors are deliberately excluded from
+`sensors.yaml` — Aether may be shared or shown to others, and that data stays
+private.
+
+**Local-first, with one deliberate exception**
+
+The Netatmo/Tado tiles depend on those vendors' cloud APIs (via their existing
+exporters) — an existing tether, not a new one. The optional radar map is the
+only genuinely new external dependency: it is lazy-loaded (nothing fetched
+until a user clicks "Show radar"), but while open it streams tiles from
+OpenStreetMap and either DWD or RainViewer, which — like any web map — can leak
+the client's IP. This is accepted as a scoped, opt-in tradeoff rather than
+built as a blocking requirement; a fully local path (self-hosted map tiles +
+local RADOLAN processing) remains possible later if the tradeoff stops being
+acceptable.
+
+**Forecast coordinates are a privacy boundary, not a config detail**
+
+The Open-Meteo forecast needs a latitude/longitude, set in `sensors.yaml` under
+`settings.location`. Town-centre coordinates are used deliberately, not the
+exact address, since a forecast is identical across a town. `sensors.yaml`
+should be treated as sensitive by `export_public.py` for this reason — as of
+this writing the export script's replacement rules do not account for it, so
+the real coordinates would currently pass through into the public mirror
+unredacted. This needs a fix in `export_public.py` before the file is safe to
+publish; flagged rather than changed here per this repo's rule that the
+public-mirror tooling is not touched without a heads-up.
+
+---
+
+## Carousel: A Deterministic PDF Pipeline, Not a Browser Renderer
+
+Carousel (`carousel.home`) turns a Markdown post into ready-to-upload Instagram
+carousel slides (1080x1440 PNGs) plus matching alt text. It was built for
+independent use by a blind author with VoiceOver on iOS.
+
+**Why WeasyPrint instead of a headless browser?**
+
+The obvious way to turn styled text into an image is a browser engine —
+Playwright or Puppeteer rendering HTML to a screenshot. That was rejected for
+two reasons. First, text overflow: a browser viewport has to be measured and
+iterated against to guarantee text fits a fixed-size frame, which is exactly
+the kind of fragile, stateful process this repo's guiding principle warns
+against. WeasyPrint instead paginates Markdown-derived HTML/CSS into a PDF
+against a fixed page size — text overflow is impossible by construction, not
+guarded against. Second, weight: a headless browser is a heavy dependency to
+run on a Raspberry Pi for a single-user tool; WeasyPrint plus `pdftoppm` is not.
+
+**Accessibility as a design constraint, not an add-on**
+
+The frontend is semantic HTML with native form elements and no JavaScript, so
+VoiceOver can drive the whole workflow without workarounds. This ruled out any
+approach that would have depended on canvas/JS rendering (client-side preview,
+drag-and-drop template editing) for the main tool — the offline
+`tools/template-editor.html` design tool is deliberately kept separate from the
+authoring flow for this reason.
+
+**Templates are config, not code**
+
+Each visual design lives in `templates_ig/<id>/` as a `template.json` plus
+source artwork — the same "config, not code" pattern used for Aether's
+`sensors.yaml`. Adding a template is dropping in a folder, not touching
+`app/renderer.py`.
 
 ---
 
