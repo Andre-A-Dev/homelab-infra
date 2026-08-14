@@ -23,3 +23,5 @@
 
 **Integrations**
 - [[Viessmann-Optolink]]
+- [[3D-Printing]]
+- [[Aether]]

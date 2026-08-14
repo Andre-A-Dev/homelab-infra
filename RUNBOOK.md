@@ -424,6 +424,75 @@ curl -s http://localhost:9117/metrics | grep shelly_device_online
 
 ---
 
+## Midea Exporter
+
+### Check exporter health
+
+```bash
+curl -s http://localhost:9116/metrics | grep midea_device_online
+docker logs midea-exporter --tail 30
+```
+
+### Restart
+
+```bash
+cd ~/stacks/monitoring
+docker compose restart midea-exporter
+docker compose logs midea-exporter -f --tail 30
+```
+
+### Reset cached credentials (force re-discovery)
+
+Needed if the device was re-paired in the MSmartHome app or the cache is
+corrupt. Requires the device to have internet access again for this one run.
+
+```bash
+cd ~/stacks/monitoring
+rm /mnt/codex/midea-exporter/device_creds.json
+docker compose restart midea-exporter
+docker logs midea-exporter --tail 20
+# Expect: "no cached creds -- running one-time cloud discovery (needs internet)"
+```
+
+---
+
+## Prusa Exporter
+
+### Check exporter health
+
+Port `9118` is not published to the host (Prometheus scrapes it over the internal Docker network only), so check from inside the container:
+
+```bash
+docker exec prusa-exporter python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:9118/metrics').read().decode())" | grep -E '^prusa_'
+docker logs prusa-exporter --tail 30
+```
+
+Expect `prusa_up 1` and one `prusa_printer_state{...state="..."} 1`.
+
+### Restart
+
+```bash
+cd ~/stacks/monitoring
+docker compose restart prusa-exporter
+docker compose logs prusa-exporter -f --tail 30
+```
+
+### Rotate PrusaLink password
+
+The password is printer-generated (`Settings → Network → PrusaLink` on the touchscreen) and can only be regenerated, not freely chosen.
+
+```bash
+# 1. Printer: Settings → Network → PrusaLink → regenerate password
+# 2. Update PRUSA_PASSWORD in the monitoring stack .env / .env.sops
+cd ~/stacks/monitoring
+docker compose up -d prusa-exporter
+docker compose logs prusa-exporter --tail 20
+```
+
+Symptom of a stale password: `prusa_up 0` while the printer is reachable on the network.
+
+---
+
 ## Alertmanager
 
 ### Check firing alerts

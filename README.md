@@ -15,6 +15,7 @@ Infrastructure-as-code for a privacy-first Raspberry Pi homelab. Covers Docker C
 | **Zephyros** | Raspberry Pi 3B+ (arm64) | Network services (remote network) | `192.168.1.11`* | `100.y.y.y` |
 | **Hephaestus** | Raspberry Pi 3B (arm32) | Viessmann heating integration | `192.168.1.13` | — |
 | **Astraeus(NX)** | Desktop PC (Ryzen 9 9950X3D, RTX 5080, 64 GB) | Primary workstation, dual-boot Windows 11 / CachyOS | `192.168.1.x` | — |
+| **Proteus** | Acer Switch Alpha 12 (N16P3) | Secondary workstation, mobile, CachyOS | DHCP | — |
 
 > \* Zephyros is on a separate network at a different network location.
 
@@ -53,7 +54,9 @@ homelab-infra/
 │   │   ├── homepage/               # Homelab dashboard
 │   │   ├── monitoring/             # Prometheus, Grafana, Alertmanager, exporters
 │   │   ├── wakapi/                 # Coding time tracker
+│   │   ├── aether/                 # Weather console (Netatmo/Tado/Shelly + forecast)
 │   │   ├── jobiris/                # Job board monitor
+│   │   ├── carousel/               # Instagram carousel generator (Markdown -> PNG slides)
 │   │   ├── solar/                  # FusionSolar exporter (inactive — Modbus TCP not available)
 │   │   └── diun/                   # Container update notifications
 │   ├── systemd/                    # Systemd units — copied to /etc/systemd/system/
@@ -103,7 +106,9 @@ homelab-infra/
 | Calibre-Web | `https://calibre.home` | `calibre/` |
 | KOSync | `https://kosync.home` | `calibre/` |
 | Wakapi | `https://wakapi.home` | `wakapi/` |
+| Aether | `https://weather.home` | `aether/` |
 | Jobiris | `https://jobiris.home` | `jobiris/` |
+| Carousel | `https://carousel.home` | `carousel/` |
 | Grafana | `https://grafana.home` | `monitoring/` |
 | Prometheus | `https://prometheus.home` | `monitoring/` |
 | Alertmanager | `https://alertmanager.home` | `monitoring/` |
@@ -232,11 +237,13 @@ Prometheus scrapes metrics from Mnemosyne, Boreas, Zephyros, Hephaestus, and Win
 | Nextcloud | nextcloud-exporter | Mnemosyne |
 | Containers | cAdvisor | Mnemosyne |
 | Shelly plugs | shelly-exporter | Mnemosyne |
+| Midea AC | midea-exporter | Mnemosyne |
 | Wakapi coding stats | wakapi (`/api/metrics`) | Mnemosyne |
 | Tailscale | textfile collector | Mnemosyne |
 | Windows system (AstraeusNX) | Node Exporter | AstraeusNX (Windows) |
 | Nvidia GPU (AstraeusNX) | Nvidia Exporter | AstraeusNX (Windows) |
 | Viessmann heating | textfile collector | Hephaestus |
+| Prusa MK4S (Pygmalion) | prusa-exporter | Mnemosyne |
 
 Grafana dashboard JSON exports are versioned under `mnemosyne/stacks/monitoring/grafana/dashboards/`.
 

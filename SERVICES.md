@@ -22,7 +22,9 @@ All internal `.home` domains require the Caddy root certificate to be imported o
 | Calibre-Web | `https://calibre.home` | `443` | Internal CA | ✅ |
 | KOSync | `https://kosync.home` | `443` | Internal CA | ✅ |
 | Wakapi | `https://wakapi.home` | `443` | Internal CA | ✅ |
+| Aether (Weather) | `https://weather.home` | `443` | Internal CA | ✅ |
 | Jobiris | `https://jobiris.home` | `443` | Internal CA | ✅ |
+| Carousel | `https://carousel.home` | `443` | Internal CA | ✅ |
 | Syncthing | `https://syncthing.home` | `443` | Internal CA | ✅ |
 | Viessmann | `https://viessmann.home` | `443` | Internal CA | ✅ |
 | Alertmanager | `https://alertmanager.home` | `443` | Internal CA | ✅ |
@@ -42,6 +44,8 @@ All internal `.home` domains require the Caddy root certificate to be imported o
 | Nextcloud Exporter | `9205` | Nextcloud metrics |
 | cAdvisor | `8080` | Container metrics |
 | Shelly Exporter | `9117` | Shelly smart plugs (Gen1 + Gen2/3) |
+| Midea Exporter | `9116` | Midea AC (LAN, cloud only on first run) |
+| Prusa Exporter | `9118` | PrusaLink: temps, state, job progress (Pygmalion MK4S) |
 
 > Prometheus (`9090`) and all exporters are internal only. Never expose these ports externally.
 
@@ -113,6 +117,8 @@ Devices on the remote's network without Tailscale can access these `.home` servi
 | `homepage.home` | `192.168.1.10` | |
 | `ghostwrite.home` | `192.168.1.10` | |
 | `ghostproxy.home` | `192.168.1.10` | |
+| `weather.home` | `192.168.1.10` | Aether weather console |
+| `carousel.home` | `192.168.1.10` | Instagram carousel generator |
 | `viessmann.home` | `192.168.1.10` | Caddy proxy → Hephaestus:8081 |
 | `cloud.yourdomain.dedyn.io` | `192.168.1.10` | Also public via deSEC DynDNS |
 | `blog.yourdomain.dedyn.io` | `192.168.1.10` | Public via deSEC DynDNS |
@@ -145,6 +151,8 @@ Devices on the remote's network without Tailscale can access these `.home` servi
 | Alertmanager data | `/mnt/codex/alertmanager/` | Mnemosyne |
 | Netatmo token | `/mnt/codex/netatmo-exporter/` | Mnemosyne |
 | Tado token | `/mnt/codex/tado-exporter/` | Mnemosyne |
+| Midea device credentials | `/mnt/codex/midea-exporter/` | Mnemosyne |
+| Carousel job output | `/mnt/codex/carousel/jobs/` (last 30 renders, older pruned automatically) | Mnemosyne |
 | Docker data root | `/mnt/codex/docker/` | Mnemosyne |
 | containerd root | `/mnt/codex/containerd/` | Mnemosyne |
 | Backup target (local) | `/mnt/backup/` | Mnemosyne (UUID `XXXX-XXXX`) |
