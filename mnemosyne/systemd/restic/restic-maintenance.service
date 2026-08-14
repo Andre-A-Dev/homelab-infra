@@ -1,0 +1,37 @@
+# =============================================================================
+# restic-maintenance.service  →  /etc/systemd/system/restic-maintenance.service
+# =============================================================================
+# Weekly prune + integrity check. Split from the daily backup because prune is
+# RAM/I/O heavy and check pulls data back over the wire — neither belongs in the
+# nightly path. Timer-driven only (no external trigger).
+# =============================================================================
+
+[Unit]
+Description=restic weekly maintenance (prune + integrity check)
+Documentation=file:///home/youruser/homelab-infra/mnemosyne/scripts/restic-maintenance.sh
+After=network-online.target
+Wants=network-online.target
+# Never prune while a backup is running against the same repo.
+Conflicts=restic-offsite.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/restic-offsite.env
+ExecStart=/usr/local/bin/restic-maintenance.sh
+
+# Prune is memory-hungry on the Pi — be a good citizen and yield to interactive
+# work. TimeoutStartSec generous because a large prune can legitimately run long.
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=6h
+
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node_exporter/textfile_collector /var/run /var/cache/restic
+ProtectHome=read-only
+NoNewPrivileges=true
+# Same reasoning as restic-offsite.service — check/prune stage temp files in /tmp.
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

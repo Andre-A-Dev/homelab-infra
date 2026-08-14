@@ -1,0 +1,44 @@
+# =============================================================================
+# restic-offsite.service  →  /etc/systemd/system/restic-offsite.service
+# =============================================================================
+# Daily offsite backup. Triggered two ways:
+#   1. by backup-services.sh on successful completion (freshness guarantee), via
+#      `systemctl start --no-block restic-offsite.service`
+#   2. by restic-offsite.timer as a daily fallback, in case a backup run was
+#      skipped or the trigger was missed
+# The script's own flock makes a double-fire harmless (second invocation exits).
+# =============================================================================
+
+[Unit]
+Description=restic offsite backup to Hetzner Storage Box
+Documentation=file:///home/youruser/homelab-infra/mnemosyne/scripts/restic-offsite.sh
+# Don't even attempt if the local backup mount is missing — nothing to back up.
+RequiresMountsFor=/mnt/backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/restic-offsite.env
+ExecStart=/usr/local/bin/restic-offsite.sh
+
+# Fault isolation: a failed offsite run must be visible but must not cascade.
+# No auto-restart — a transient network failure is caught by the next daily
+# run, and Restart= on a oneshot backup risks hammering a struggling uplink.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+# Hardening — this service only needs to read /mnt/backup and reach the network.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/node_exporter/textfile_collector /var/run /var/cache/restic
+ReadOnlyPaths=/mnt/backup
+ProtectHome=read-only
+NoNewPrivileges=true
+# restic stages temp pack files in /tmp during backup — ProtectSystem=strict
+# blocks the real /tmp, so give the service its own isolated, writable one
+# rather than opening the shared system /tmp.
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

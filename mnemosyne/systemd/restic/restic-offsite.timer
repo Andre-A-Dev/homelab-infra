@@ -1,0 +1,26 @@
+# =============================================================================
+# restic-offsite.timer  →  /etc/systemd/system/restic-offsite.timer
+# =============================================================================
+# FALLBACK ONLY. The primary trigger is backup-services.sh calling the service
+# directly on success. This timer catches the case where the backup didn't run
+# or the trigger was missed, so offsite never silently stalls for days — the
+# exact failure mode that went unnoticed for three nights with the old rclone
+# step.
+#
+# Set well AFTER the 02:00 local backup so, on a normal night, the trigger has
+# already run and this fallback finds nothing new to do (a near-empty dedup'd
+# snapshot, cleaned up by forget).
+# =============================================================================
+
+[Unit]
+Description=Daily fallback trigger for restic offsite backup
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+# If the machine was off at 06:00, run once it's back rather than skipping.
+Persistent=true
+# Spread the start slightly to avoid a thundering herd if other timers align.
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

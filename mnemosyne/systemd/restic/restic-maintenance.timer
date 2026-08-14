@@ -1,0 +1,18 @@
+# =============================================================================
+# restic-maintenance.timer  →  /etc/systemd/system/restic-maintenance.timer
+# =============================================================================
+# Weekly, Sunday morning — after the nightly backups of the week are done but
+# at a low-traffic hour. Persistent so a powered-off Pi still runs maintenance
+# once it's back, rather than skipping a week silently.
+# =============================================================================
+
+[Unit]
+Description=Weekly restic maintenance (prune + check)
+
+[Timer]
+OnCalendar=Sun *-*-* 05:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target
