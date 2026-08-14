@@ -1,13 +1,17 @@
 {
-	# Disable HTTP redirect – port 80 belongs to Pi-hole
-	auto_https disable_redirects
+    # Disable HTTP redirect – port 80 belongs to Pi-hole
+    auto_https disable_redirects
 }
 
+# -- Pihole ---------------------------------------------------------------
+
 pihole.home {
-	tls internal
-	redir / /admin/ 301
-	reverse_proxy http://172.19.0.1:80
+    tls internal
+    redir / /admin/ 301
+    reverse_proxy http://172.19.0.1:80
 }
+
+# -- Git ------------------------------------------------------------------
 
 git.home {
     tls internal
@@ -20,6 +24,8 @@ git.home {
     }
 }
 
+# -- Homepage --------------------------------------------------------------
+
 homepage.home {
     tls internal
     reverse_proxy https://homepage.home {
@@ -30,6 +36,8 @@ homepage.home {
         }
     }
 }
+
+# -- Grafana --------------------------------------------------------------
 
 grafana.home {
     tls internal
@@ -42,6 +50,8 @@ grafana.home {
     }
 }
 
+# -- Prometheus ------------------------------------------------------------
+
 prometheus.home {
     tls internal
     reverse_proxy https://prometheus.home {
@@ -53,27 +63,31 @@ prometheus.home {
     }
 }
 
+# -- Ghost -----------------------------------------------------------------
+
 ghostwrite.home {
-	tls internal
-	reverse_proxy https://ghostwrite.home {
-		header_up Host ghostwrite.home
-		transport http {
-			tls_insecure_skip_verify
+    tls internal
+    reverse_proxy https://ghostwrite.home {
+        header_up Host ghostwrite.home
+        transport http {
+            tls_insecure_skip_verify
                         versions 1.1
-		}
-	}
+        }
+    }
 }
 
 ghostproxy.home {
-	tls internal
-	reverse_proxy https://ghostproxy.home {
-		header_up Host ghostproxy.home
-		transport http {
-			tls_insecure_skip_verify
+    tls internal
+    reverse_proxy https://ghostproxy.home {
+        header_up Host ghostproxy.home
+        transport http {
+            tls_insecure_skip_verify
                         versions 1.1
-		}
-	}
+        }
+    }
 }
+
+# -- Immich ---------------------------------------------------------------
 
 immich.home {
     tls internal
@@ -86,3 +100,16 @@ immich.home {
     }
 }
 
+# -- Carousel ---------------------------------------------------------------------
+
+carousel.home {
+    tls internal
+    reverse_proxy https://100.x.x.x {
+        header_up Host carousel.home
+        transport http {
+            tls_insecure_skip_verify
+            tls_server_name carousel.home
+            versions 1.1
+        }
+    }
+}
