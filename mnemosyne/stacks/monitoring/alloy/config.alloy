@@ -1,0 +1,78 @@
+// ============================================================================
+// Grafana Alloy - log collection for Mnemosyne
+// Collects Docker container logs + the systemd journal, forwards to local Loki.
+// Debug UI: http://mnemosyne:12345  (or https://alloy.home via Caddy)
+// Reference: grafana/alloy:v1.17.1
+// ============================================================================
+
+// -- Alloy's own logs -> Loki (self-observability) --------------------------
+logging {
+  level    = "info"
+  format   = "logfmt"
+  write_to = [loki.write.local.receiver]
+}
+
+// -- Discover all running Docker containers ---------------------------------
+discovery.docker "containers" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "15s"
+}
+
+// -- Turn Docker metadata into clean, low-cardinality Loki labels -----------
+// Label discipline: keep it to host / container / compose_project / stream.
+// Everything else (log level, request path, status code) is extracted at
+// query time with LogQL - NOT stored as a label.
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  // Container name: strip the leading slash  (/nextcloud -> nextcloud)
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  // Compose project, if the container was started via docker compose
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+
+  // Log stream (stdout / stderr)
+  rule {
+    source_labels = ["__meta_docker_container_log_stream"]
+    target_label  = "stream"
+  }
+}
+
+// -- Read logs from the discovered containers -------------------------------
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.process.add_host.receiver]
+}
+
+// -- Read the host's systemd journal ----------------------------------------
+// Captures things that are NOT containers: cron backups, sshd logins,
+// the adnanh/webhook handler (if run as a systemd unit), the docker daemon.
+loki.source.journal "journal" {
+  max_age    = "12h"
+  labels     = { job = "systemd-journal" }
+  forward_to = [loki.process.add_host.receiver]
+}
+
+// -- Stamp every line with its host, then ship ------------------------------
+// The static host label makes logs separable once satellite hosts are added.
+loki.process "add_host" {
+  stage.static_labels {
+    values = { host = "mnemosyne" }
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+// -- Write to the local Loki instance ---------------------------------------
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

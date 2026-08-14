@@ -216,3 +216,11 @@ scrape_configs:
     relabel_configs:
       - source_labels: [hostname]
         target_label: instance
+
+  # -- Prusa -------------------------------------------------------------------
+  - job_name: prusa
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["prusa-exporter:9118"]
+        labels:
+          printer: pygmalion

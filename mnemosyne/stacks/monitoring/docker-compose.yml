@@ -278,9 +278,6 @@ services:
     environment:
       - MIDEA_IP=192.168.1.x
       - MIDEA_REGION=DE
-      # optional, nur falls die DE-Built-in-Creds nicht reichen:
-      # - MIDEA_ACCOUNT_EMAIL=${MIDEA_ACCOUNT_EMAIL}
-      # - MIDEA_ACCOUNT_PASSWORD=${MIDEA_ACCOUNT_PASSWORD}
       - MIDEA_DEVICE_NAME=portasplit
       - MIDEA_CACHE=/data/device_creds.json
       - EXPORTER_PORT=9116
@@ -289,6 +286,74 @@ services:
     ports:
       - "9116:9116"
     restart: unless-stopped
+    networks:
+      - monitoring
+
+
+  # -- Log store: Loki (monolithic, filesystem) --------------------------------
+  loki:
+    image: grafana/loki:3.7.2
+    container_name: loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      - ./loki/loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - /mnt/codex/loki:/loki
+    networks:
+      - monitoring
+    healthcheck:
+      # Native self-check via the loki binary. Since v3.6.0 the image is
+      # distroless (no shell, no wget/curl), so `-health` is the only option.
+      # It runs before config parsing and GETs http://localhost:3100/ready.
+      test: ["CMD", "/usr/bin/loki", "-health"]
+      start_period: 40s   # WAL replay / TSDB init is slower on the Pi 5 (arm64)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # Loki stays internal: Grafana + Alloy reach it over `monitoring`.
+    # No port mapping, no Caddy entry, never expose it.
+
+  # -- Log collector: Alloy (Docker logs + journal) ---------------------------
+  alloy:
+    image: grafana/alloy:v1.17.1
+    container_name: alloy
+    restart: unless-stopped
+    user: root                     # needs to read the Docker socket + the journal
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log/journal:/var/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - /mnt/codex/alloy:/var/lib/alloy/data   # Weg B: bind mount on the data disk, consistent with every other service
+    depends_on:
+      loki:
+        condition: service_started   # was: service_healthy — start-order only, kein Blockieren mehr
+    networks:
+      - monitoring
+      - caddy_proxy                # only for the debug UI at alloy.home
+
+  # -- Prusa ------------------------------------------------------------------
+  prusa-exporter:
+    build: ./prusa_exporter
+    container_name: prusa-exporter
+    restart: unless-stopped
+    environment:
+      PRUSA_HOST: ${PRUSA_HOST}
+      # Unset vars interpolate to empty and are ignored by the exporter,
+      # so it's safe to leave one of these blank in .env.
+      PRUSA_API_KEY: ${PRUSA_API_KEY:-}
+      PRUSA_PASSWORD: ${PRUSA_PASSWORD:-}
+      PRINTER_NAME: pygmalion
+      EXPORTER_PORT: "9118"
+    # No published port needed if Prometheus scrapes it on the internal network.
+    # Uncomment only for host-level debugging (curl localhost:9118/metrics):
+    # ports:
+    #   - "9118:9118"
     networks:
       - monitoring
 
