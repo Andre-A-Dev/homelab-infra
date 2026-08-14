@@ -7,6 +7,9 @@ caddy.env
 **/app.ini
 shared/webhook/hooks.json
 
+[includeIf "gitdir:~/Projects/github/"]
+    path = ~/.config/git/github.inc
+
 # Mail credentials
 **/msmtprc
 
@@ -22,3 +25,16 @@ node_modules/
 # JetBrains IDEs (PyCharm, IntelliJ, etc.)
 .idea/
 *.iml
+desktop.ini
+*.code-workspace
+.directory
+/.venv/
+
+# OpenRGB — never commit plugin binaries, only settings.
+# Lesson from 2026-08-14: manually downloaded .so files caused the crash.
+astraeus_nx/dotfiles/openrgb/**/*.so
+
+# OpenRGB writes ~70+ log files, pure noise, never useful to version
+astraeus_nx/dotfiles/openrgb/logs/
+
+astraeus_nx/dotfiles/coolercontrol/*.cache
