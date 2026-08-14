@@ -30,9 +30,14 @@
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-BACKUP_DIR="/mnt/backup"
+# Override via `BACKUP_DIR=/path sudo -E ./restore-services.sh` for testing
+# against an alternate source (e.g. a downloaded offsite copy) without
+# touching the default. Destination paths for restored data are unaffected —
+# they are always the live production paths (see restore_* functions below).
+BACKUP_DIR="${BACKUP_DIR:-/mnt/backup}"
 STACKS_DIR="/home/youruser/stacks"
 ENV_NEXTCLOUD="$STACKS_DIR/nextcloud/.env"
+ENV_IMMICH="$STACKS_DIR/immich/.env"
 LOG="/var/log/restore-services.log"
 
 
@@ -59,6 +64,12 @@ SPINNER_CHARS="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 STEP_START_TIME=0
 
 spinner_start() {
+  # Stop any previous spinner first — restore functions call spinner_start
+  # several times in a row (stopping/restoring/starting) without an explicit
+  # spinner_stop between them. Without this, each call leaked the previous
+  # background process, and multiple spinners fought over the same terminal
+  # line — visible as flickering "Starting/Stopping" text on long operations.
+  spinner_stop
   local msg="$1"
   (
     local i=0
@@ -127,8 +138,8 @@ run_tar() {
 
 # ── Result helpers ─────────────────────────────────────────────────────────────
 
-ok()   { local e=$(( $(date +%s) - STEP_START_TIME )); spinner_stop; echo -e "  ${GREEN}✓ OK${RESET}   $1 ($(format_duration $e))"; log_file "  OK   $1 ($(format_duration $e))"; ((RESTORED++)); }
-fail() { local e=$(( $(date +%s) - STEP_START_TIME )); spinner_stop; echo -e "  ${RED}✗ FAIL${RESET} $1 ($(format_duration $e))"; log_file "  FAIL $1 ($(format_duration $e))"; ((ERRORS++)); }
+ok()   { local e=$(( $(date +%s) - STEP_START_TIME )); spinner_stop; echo -e "  ${GREEN}✓ OK${RESET}   $1 ($(format_duration $e))"; log_file "  OK   $1 ($(format_duration $e))"; ((RESTORED++)); return 0; }
+fail() { local e=$(( $(date +%s) - STEP_START_TIME )); spinner_stop; echo -e "  ${RED}✗ FAIL${RESET} $1 ($(format_duration $e))"; log_file "  FAIL $1 ($(format_duration $e))"; ((ERRORS++)); return 0; }
 warn() { spinner_stop; echo -e "  ${YELLOW}⚠ WARN${RESET} $1"; log_file "  WARN $1"; }
 info() { echo -e "         ${CYAN}$1${RESET}"; log_file "         $1"; }
 
@@ -163,6 +174,7 @@ SERVICE_IDS=(
   aegis
   gitea
   nextcloud
+  immich
   grafana
   prometheus
   stack-configs
@@ -178,6 +190,7 @@ declare -A SERVICE_LABEL=(
   [aegis]="Aegis 2FA backup"
   [gitea]="Gitea"
   [nextcloud]="Nextcloud"
+  [immich]="Immich"
   [grafana]="Grafana"
   [prometheus]="Prometheus"
   [stack-configs]="Stack configs"
@@ -194,6 +207,7 @@ declare -A SERVICE_FILES=(
   [aegis]="aegis-backup.tar.gz"
   [gitea]="gitea-data.tar.gz"
   [nextcloud]="nextcloud-data.tar nextcloud-db.sql"
+  [immich]="immich-upload.tar immich-db.sql"
   [grafana]="grafana-data.tar.gz"
   [prometheus]="prometheus-data.tar.gz"
   [stack-configs]="stacks-config.tar.gz"
@@ -303,8 +317,8 @@ draw_menu() {
 }
 
 # Lines printed by draw_menu (used for cursor repositioning):
-#   blank + header + blank + 12 services + blank + controls + blank + divider + status = 20
-MENU_HEIGHT=20
+#   blank + header + blank + 13 services + blank + controls + blank + divider + status = 21
+MENU_HEIGHT=21
 
 service_selection_menu() {
   # Save cursor position before drawing so we can redraw in place on each toggle.
@@ -726,6 +740,52 @@ restore_nextcloud() {
   fi
 }
 
+restore_immich() {
+  step "Immich"
+
+  if [ ! -f "$ENV_IMMICH" ]; then
+    fail "Immich — .env not found: $ENV_IMMICH"
+    return
+  fi
+  # shellcheck source=/dev/null
+  source "$ENV_IMMICH"
+
+  local upload_archive db_dump
+  upload_archive=$(resolve_archive "immich-upload.tar")
+  db_dump=$(resolve_archive "immich-db.sql")
+  local upload_date db_date
+  upload_date=$(basename "$(dirname "$upload_archive")")
+  db_date=$(basename "$(dirname "$db_dump")")
+
+  if [ "$upload_date" != "$db_date" ]; then
+    warn "Immich — upload archive ($upload_date) and DB ($db_date) are from different snapshots"
+  fi
+
+  # Same pattern as Nextcloud: the DB container (immich-db) stays up so the
+  # dump can be piped straight back in; only the app server is stopped so it
+  # can't write to the upload directory mid-restore.
+  spinner_start "Stopping Immich server"
+  container_stop immich-server
+
+  spinner_start "Restoring upload directory (may take a while)"
+  run_tar tar -xf "$upload_archive" -C /
+  local rc_files=$?
+
+  spinner_start "Restoring database"
+  docker exec -i immich-db psql -U "$DB_USERNAME" -d postgres \
+    < "$db_dump" >> "$LOG" 2>&1
+  local rc_db=$?
+
+  spinner_start "Starting Immich server"
+  container_start immich-server
+
+  if [ "$rc_files" -eq 0 ] && [ "$rc_db" -eq 0 ]; then
+    ok "Immich restored from $upload_date"
+  else
+    fail "Immich — restore failed (files: $rc_files, db: $rc_db)"
+  fi
+}
+
 restore_grafana() {
   step "Grafana"
 
@@ -879,6 +939,7 @@ echo -e "${BOLD}  Starting restore — $TOTAL_STEPS service(s)...${RESET}"
 [ "${SELECTED[aegis]}"           -eq 1 ] && restore_aegis
 [ "${SELECTED[gitea]}"           -eq 1 ] && restore_gitea
 [ "${SELECTED[nextcloud]}"       -eq 1 ] && restore_nextcloud
+[ "${SELECTED[immich]}"          -eq 1 ] && restore_immich
 [ "${SELECTED[grafana]}"         -eq 1 ] && restore_grafana
 [ "${SELECTED[prometheus]}"      -eq 1 ] && restore_prometheus
 [ "${SELECTED[stack-configs]}"   -eq 1 ] && restore_stack_configs

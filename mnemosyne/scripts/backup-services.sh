@@ -9,11 +9,11 @@ MIN_FREE_GB=40                    # Abort if less than this many GB are free bef
 MAX_USAGE_PERCENT=85              # Abort if disk usage exceeds this % after cleanup
 LOG="/var/log/backup-services.log"
 
-# Offsite target (Hetzner Storage Box via rclone crypt remote).
-# rclone sync mirrors $BACKUP_DIR onto the remote, including deletions —
-# this means offsite retention automatically follows local retention
-# (RETENTION_DAYS above) without needing separate pruning logic.
-OFFSITE_REMOTE="hetzner-crypt:"
+# Offsite backup is handled by a separate, decoupled restic service
+# (restic-offsite.service), triggered at the end of this script on success.
+# It is NOT an inline step here — this keeps the slow, network-bound offsite
+# transfer out of the local backup's critical path and gives it independent
+# success/failure tracking. See restic-offsite.sh and SETUP.md.
 
 # Tracks the last successful backup timestamp per service.
 # Stored on the local filesystem (not the external SSD) so it's always available.
@@ -68,11 +68,11 @@ for arg in "$@"; do
       echo "  --dry-run            Show what would run without writing anything"
       echo "  --no-cleanup         Skip the retention cleanup step"
       echo "  --overwrite          Overwrite today's backup if it already exists"
-      echo "  --no-offsite         Skip the offsite sync to Hetzner Storage Box"
+      echo "  --no-offsite         Skip triggering the restic offsite service"
       echo "  --only=<service>     Back up a single service only"
       echo "                       Services: vaultwarden, caddy, calibre, calibre-web,"
       echo "                                 kosync, syncthing, aegis, gitea, nextcloud,"
-      echo "                                 grafana, prometheus, stacks"
+      echo "                                 immich, grafana, prometheus, stacks"
       echo "  --retention=<days>   Override the default retention period"
       exit 1
       ;;
@@ -155,9 +155,11 @@ record_archive_size() {
 
 # Returns 0 (true) if SERVICE should be backed up given the --only flag.
 # When --only is not set all services run. When set only the matching service runs.
+# Case-insensitive: a typo'd --only=Vaultwarden must still match "vaultwarden",
+# not silently skip every service while reporting a clean run.
 should_run() {
   local service="$1"
-  [ -z "$ONLY" ] || [ "$ONLY" = "$service" ]
+  [ -z "$ONLY" ] || [ "${ONLY,,}" = "${service,,}" ]
 }
 
 # Strip ANSI color codes before writing to log file
@@ -355,6 +357,37 @@ skipped_service() {
   echo "  ⊘ SKIP  $1 — excluded by --only=${ONLY}" >> "$LOG"
 }
 
+# ── Validate --only against known services ──────────────────────────────────
+# A typo here (Vaultwarden vs vaultwarden, or a plain misspelling) must not
+# silently match nothing and skip every single service while still reporting
+# a clean run — that happened, and it's the most dangerous failure mode of
+# all: zero backups taken, exit code 0, "all steps completed successfully".
+VALID_SERVICES="vaultwarden caddy calibre calibre-web kosync syncthing aegis gitea nextcloud immich grafana prometheus stacks"
+if [ -n "$ONLY" ]; then
+  MATCH=false
+  for svc in $VALID_SERVICES; do
+    [ "${ONLY,,}" = "$svc" ] && MATCH=true && break
+  done
+  if [ "$MATCH" = false ]; then
+    echo -e "${RED}${BOLD}  ERROR: --only=${ONLY} is not a known service.${RESET}"
+    echo -e "${RED}  Valid values: ${VALID_SERVICES}${RESET}"
+    echo "  ERROR: --only=${ONLY} is not a known service." >> "$LOG"
+    exit 1
+  fi
+fi
+
+# ── Concurrency guard ────────────────────────────────────────────────────────
+# Prevents two invocations from running at once — e.g. a nightly run that ran
+# long overlapping with the next cron tick. Offsite is now a separate restic
+# service with its own lock, so this guard only protects the local backup.
+LOCK_FILE="/var/run/backup-services.lock"
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+  echo -e "${RED}${BOLD}  ERROR: Another instance of backup-services.sh is already running.${RESET}"
+  echo "  ERROR: Lock held on $LOCK_FILE — exiting without starting a second run." >> "$LOG"
+  exit 1
+fi
+
 # ── Pre-flight checks ──────────────────────────────────────────────────────────
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════════════════════╗${RESET}"
@@ -459,7 +492,7 @@ log "  Backup directory: $BACKUP_DIR/$DATE"
 [ "$DRY_RUN" = true ]    && echo -e "  ${CYAN}⚠ --dry-run: no data will be written${RESET}"
 [ "$NO_CLEANUP" = true ] && echo -e "  ${CYAN}⚠ --no-cleanup: retention cleanup skipped${RESET}"
 [ "$OVERWRITE" = true ]  && echo -e "  ${YELLOW}⚠ --overwrite: existing backup for $DATE will be replaced${RESET}"
-[ "$NO_OFFSITE" = true ] && echo -e "  ${CYAN}⚠ --no-offsite: offsite sync to Hetzner will be skipped${RESET}"
+[ "$NO_OFFSITE" = true ] && echo -e "  ${CYAN}⚠ --no-offsite: restic offsite trigger will be skipped${RESET}"
 [ -n "$ONLY" ]           && echo -e "  ${CYAN}⚠ --only=${ONLY}: all other services will be skipped${RESET}"
 log "=== Backup started: $(date) ==="
 
@@ -501,7 +534,9 @@ fi
 
 step "Calibre Library"
 CURRENT_SERVICE="calibre"
-if has_changed "calibre" /mnt/codex/calibre-library/; then
+if ! should_run "calibre"; then
+  skipped_service "Calibre Library"
+elif has_changed "calibre" /mnt/codex/calibre-library/; then
   run_tar tar -czf "$BACKUP_DIR/$DATE/calibre-library.tar.gz" \
     /mnt/codex/calibre-library/
   if [ $? -eq 0 ]; then
@@ -579,10 +614,23 @@ fi
 
 step "Gitea"
 CURRENT_SERVICE="gitea"
-if has_changed "gitea" /mnt/codex/gitea/data/; then
+if ! should_run "gitea"; then
+  skipped_service "Gitea"
+elif has_changed "gitea" /mnt/codex/gitea/data/; then
+  # gitea.db is Gitea's built-in SQLite database, actively written by the
+  # running container (e.g. the Act Runner on every push/webhook). A raw tar
+  # read of a live SQLite file races with concurrent writes — "file changed
+  # as we read it". Unlike Vaultwarden (sqlite3 .backup, safe against
+  # concurrent writers), Gitea has no such API exposed, so the container is
+  # stopped briefly instead. Acceptable: Gitea is not internet-facing and has
+  # no other consumers at 2am.
+  run docker stop gitea
   run_tar tar -czf "$BACKUP_DIR/$DATE/gitea-data.tar.gz" \
     /mnt/codex/gitea/data/
-  if [ $? -eq 0 ]; then
+  TAR_RC=$?
+  run docker start gitea
+
+  if [ "$TAR_RC" -eq 0 ]; then
     record_archive_size "$BACKUP_DIR/$DATE/gitea-data.tar.gz"
     ok "Gitea saved"
     mark_backed_up "gitea"
@@ -596,7 +644,9 @@ fi
 step "Nextcloud (maintenance mode + DB dump + files)"
 CURRENT_SERVICE="nextcloud"
 
-if ! has_changed "nextcloud" /mnt/codex/nextcloud/data/; then
+if ! should_run "nextcloud"; then
+  skipped_service "Nextcloud"
+elif ! has_changed "nextcloud" /mnt/codex/nextcloud/data/; then
   skip "Nextcloud" "nextcloud-data.tar"
   # DB dump is tightly coupled to the file backup — skip both together.
   # The last real DB dump is in the same directory as the last real data archive.
@@ -624,8 +674,10 @@ else
     log_file "  DB dump size: $DB_SIZE"
   fi
 
-  # Uncompressed for speed — photos/videos are already compressed, gzip gives no benefit
-  run_tar tar -cf "$BACKUP_DIR/$DATE/nextcloud-data.tar" \
+  # Uncompressed for speed — photos/videos are already compressed, gzip gives no benefit.
+  # --sort=name gives deterministic member order so restic can deduplicate this
+  # 73 GB archive across snapshots; without it, shifting byte offsets defeat dedup.
+  run_tar tar --sort=name -cf "$BACKUP_DIR/$DATE/nextcloud-data.tar" \
     /mnt/codex/nextcloud/data/
 
   run_visible docker exec -u www-data nextcloud php occ maintenance:mode --off
@@ -638,6 +690,62 @@ else
   else
     fail "Nextcloud files saved but DB dump failed"
   fi
+fi
+
+
+# ── IMMICH ─────────────────────────────────────────────────────────────────────
+# Previously documented as backed up (16_Immich.md, "status: Done") but never
+# actually implemented — Immich had zero backup coverage. This closes that gap.
+
+step "Immich"
+CURRENT_SERVICE="immich"
+if ! should_run "immich"; then
+  skipped_service "Immich"
+elif has_changed "immich" /mnt/codex/immich/upload/; then
+  # Sourced locally rather than globally (unlike ENV_NEXTCLOUD above) so a
+  # missing Immich .env only fails this step, not unrelated --only runs.
+  ENV_IMMICH="/home/youruser/stacks/immich/.env"
+  if [ ! -f "$ENV_IMMICH" ]; then
+    fail "Immich — .env not found: $ENV_IMMICH"
+  else
+    # shellcheck source=/dev/null
+    source "$ENV_IMMICH"
+
+    # PostgreSQL dump — mirrors the Nextcloud pattern: dump instead of
+    # raw-copying live DB files, which would risk a torn/inconsistent backup.
+    # Container name is "immich-db" per the stack's docker-compose.yml.
+    docker exec immich-db pg_dumpall -U "$DB_USERNAME" \
+      > "$BACKUP_DIR/$DATE/immich-db.sql" \
+      2> >(strip_ansi >> "$LOG")
+    DB_EXIT=$?
+
+    if [ "$DB_EXIT" -ne 0 ] || [ ! -s "$BACKUP_DIR/$DATE/immich-db.sql" ]; then
+      log_file "  Immich DB dump failed (exit: $DB_EXIT)"
+    else
+      DB_SIZE=$(du -sh "$BACKUP_DIR/$DATE/immich-db.sql" | cut -f1)
+      log_file "  Immich DB dump size: $DB_SIZE"
+    fi
+
+    # Uncompressed + deterministic order — same reasoning as nextcloud-data.tar:
+    # photos/videos are already compressed (gzip gains nothing), and --sort=name
+    # keeps restic's deduplication stable across nightly snapshots.
+    # encoded-video/ is derived data Immich regenerates on demand — excluded,
+    # same as documented in 16_Immich.md.
+    run_tar tar --sort=name -cf "$BACKUP_DIR/$DATE/immich-upload.tar" \
+      --exclude='encoded-video' \
+      /mnt/codex/immich/upload/
+    TAR_EXIT=$?
+
+    if [ "$DB_EXIT" -eq 0 ] && [ "$TAR_EXIT" -eq 0 ]; then
+      record_archive_size "$BACKUP_DIR/$DATE/immich-upload.tar"
+      ok "Immich saved"
+      mark_backed_up "immich"
+    else
+      fail "Immich — DB dump or upload archive failed (db:$DB_EXIT tar:$TAR_EXIT)"
+    fi
+  fi
+else
+  skip "Immich" "immich-upload.tar"
 fi
 
 
@@ -691,41 +799,6 @@ else
     fail "Stack configs failed"
   fi
 fi
-
-
-# ── OFFSITE ────────────────────────────────────────────────────────────────────
-# Mirrors the entire $BACKUP_DIR (all retained days) to the Hetzner Storage Box
-# through an rclone crypt remote. Using `sync` rather than `copy` means files
-# pruned locally by the retention cleanup above are also removed offsite —
-# one retention policy, not two to keep in sync by hand.
-OFFSITE_START=0
-OFFSITE_DURATION=0
-OFFSITE_EXIT=0
-
-step "Offsite sync (Hetzner Storage Box)"
-CURRENT_SERVICE="offsite"
-OFFSITE_START=$(date +%s)
-
-if [ "$NO_OFFSITE" = true ]; then
-  skipped_service "Offsite sync"
-  STEP_STATUSES["offsite"]=2
-elif ! command -v rclone >/dev/null 2>&1; then
-  fail "Offsite sync failed — rclone not installed"
-  OFFSITE_EXIT=1
-else
-  run rclone sync "$BACKUP_DIR" "$OFFSITE_REMOTE" \
-    --exclude ".Trash-*/**" \
-    -v
-  OFFSITE_EXIT=$?
-  if [ "$OFFSITE_EXIT" -eq 0 ]; then
-    ok "Offsite sync completed"
-    mkdir -p "$TIMESTAMP_DIR"
-    touch "$TIMESTAMP_DIR/offsite-success"
-  else
-    fail "Offsite sync failed (exit: $OFFSITE_EXIT) — local backup is still intact"
-  fi
-fi
-OFFSITE_DURATION=$(( $(date +%s) - OFFSITE_START ))
 
 
 # ── CLEANUP — second pass to catch today's run pushing usage over threshold ───
@@ -807,19 +880,9 @@ DURATION=$((END_TIME - START_TIME))
   echo "# HELP backup_skipped_total Number of services skipped in the last run (no changes detected)"
   echo "# TYPE backup_skipped_total gauge"
   echo "backup_skipped_total $SKIPPED_TOTAL"
-  echo "# HELP backup_offsite_last_exit_code Exit code of the last offsite rclone sync (0 = success)"
-  echo "# TYPE backup_offsite_last_exit_code gauge"
-  echo "backup_offsite_last_exit_code $OFFSITE_EXIT"
-  echo "# HELP backup_offsite_duration_seconds Duration of the last offsite rclone sync in seconds"
-  echo "# TYPE backup_offsite_duration_seconds gauge"
-  echo "backup_offsite_duration_seconds $OFFSITE_DURATION"
-  echo "# HELP backup_offsite_last_success_timestamp Unix timestamp of the last successful offsite sync"
-  echo "# TYPE backup_offsite_last_success_timestamp gauge"
-  if [ -f "$TIMESTAMP_DIR/offsite-success" ]; then
-    echo "backup_offsite_last_success_timestamp $(stat -c%Y "$TIMESTAMP_DIR/offsite-success")"
-  else
-    echo "backup_offsite_last_success_timestamp 0"
-  fi
+  # Offsite metrics are no longer emitted here — the decoupled restic service
+  # owns them (restic_offsite.prom). Keeping them here would produce stale,
+  # misleading values since this script no longer performs the offsite transfer.
   echo "# HELP backup_step_duration_seconds Duration of each backup step in seconds"
   echo "# TYPE backup_step_duration_seconds gauge"
   for service in "${!STEP_DURATIONS[@]}"; do
@@ -836,5 +899,28 @@ DURATION=$((END_TIME - START_TIME))
     echo "backup_archive_size_bytes{service=\"${service}\"} ${ARCHIVE_SIZES[$service]}"
   done
 } > "$TEXTFILE_DIR/backup.prom"
+
+# ── Trigger offsite (restic, decoupled) ─────────────────────────────────────
+# Fire-and-forget: restic runs as its own systemd service so its success or
+# failure is tracked independently (restic_offsite.prom) and never affects this
+# script's exit code. --no-block returns immediately; the daily fallback timer
+# (restic-offsite.timer) covers the case where this trigger is ever missed.
+# Only triggered on a clean local backup — no point shipping a broken snapshot.
+# --dry-run must also suppress this: run()/run_tar() report success without
+# writing anything, so ERRORS stays 0 in dry-run mode too — without this check,
+# a "risk-free" dry-run would still kick off a real, multi-hour restic backup.
+if [ "$DRY_RUN" = true ]; then
+  log "  Offsite: skipped (--dry-run)"
+elif [ "$NO_OFFSITE" != true ] && [ "$ERRORS" -eq 0 ]; then
+  if systemctl start --no-block restic-offsite.service 2>/dev/null; then
+    log "  Offsite: triggered restic-offsite.service"
+  else
+    log "  Offsite: WARN — could not trigger restic-offsite.service (check: systemctl status restic-offsite)"
+  fi
+elif [ "$NO_OFFSITE" = true ]; then
+  log "  Offsite: skipped (--no-offsite)"
+else
+  log "  Offsite: NOT triggered — local backup had $ERRORS error(s), not shipping a broken snapshot"
+fi
 
 [ "$ERRORS" -eq 0 ] && exit 0 || exit 1
