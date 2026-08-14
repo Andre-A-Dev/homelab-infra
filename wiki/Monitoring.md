@@ -19,6 +19,7 @@ Prometheus scrapes metrics from all hosts and exporters. Grafana visualises them
 | Fritz Exporter | FritzBox home network | `9787` |
 | Tado Exporter | Tado heating | `9100` |
 | Shelly Exporter | Shelly smart plugs | `9117` |
+| Prusa Exporter | Pygmalion (MK4S) status | `9118` |
 
 All components share the `monitoring` internal Docker network. Prometheus, Grafana, and Alertmanager additionally join `caddy_proxy` to be reachable via Caddy.
 
@@ -38,6 +39,7 @@ Prometheus (Mnemosyne :9090)
 │   ├── tado-exporter :9100
 │   ├── blackbox-exporter :9115
 │   ├── shelly-exporter :9117
+│   ├── prusa-exporter :9118
 │   ├── gitea :3000  (/metrics)
 │   └── wakapi :3000  (/api/metrics)
 │
@@ -160,6 +162,9 @@ Dashboard JSON files are versioned in `mnemosyne/stacks/monitoring/grafana/dashb
 | `01_07_FritzExporter` | FritzBox network metrics |
 | `01_08_Gitea` | Gitea repository metrics |
 | `01_10_Shelly` | Shelly smart plug power metrics |
+| `01_10_Shelly_Devices` | Shelly devices |
+| `01_11_Midea_Portasplit` | Midea Portasplit |
+| `01_12_Prusa_MK4S` | Prusa MK4S: state, temps, job progress |
 | `02_01_KlimaHeizung` | Combined climate + heating overview |
 | `02_02_Tado` | Tado heating |
 | `02_03_Netatmo` | Netatmo weather station |

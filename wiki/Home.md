@@ -12,7 +12,8 @@ Infrastructure-as-code for a privacy-first Raspberry Pi homelab. Self-hosted alt
 | **Boreas** | Raspberry Pi 3B | DNS + network services (home) |
 | **Zephyros** | Raspberry Pi 3B+ | DNS + reverse proxy (secondary location) |
 | **Hephaestus** | Raspberry Pi 3B | Viessmann heating integration |
-| **AstraeusNX** | Desktop PC (Ryzen 9 9950X3D, RTX 5080) | Primary workstation, dual-boot Windows 11 / CachyOS |
+| **Astraeus(NX)** | Desktop PC (Ryzen 9 9950X3D, RTX 5080) | Primary workstation, dual-boot Windows 11 / CachyOS |
+| **Proteus** | Acer Switch Alpha 12 (N16P3) | CachyOS |
 
 ---
 
@@ -30,7 +31,12 @@ Infrastructure-as-code for a privacy-first Raspberry Pi homelab. Self-hosted alt
 - Gitea -- self-hosted Git
 - Ghostwrite / GhostProxy -- writing tools
 - Wakapi -- coding time tracker
+- Aether -- weather console (Netatmo/Tado/Shelly + forecast)
 - Jobiris -- job board monitor
+- Carousel -- Markdown -> Instagram carousel slides
+- Homepage -- homelab dashboard
+- Syncthing -- Obsidian vault sync
+- Viessmann Control API -- heating integration (Hephaestus)
 
 All internal services run behind Caddy with an internal CA. No plaintext secrets in tracked files.
 
@@ -51,12 +57,15 @@ All internal services run behind Caddy with an internal CA. No plaintext secrets
 ```
 homelab-infra/
 ├── shared/             # Multi-host scripts, hostname-dispatched
+├── scripts/            # Script for Git management (sanitize, audit, sync Gitea <> GitHub)
 ├── mnemosyne/          # Docker stacks, scripts, systemd units
 ├── boreas/             # Pi-hole exporter
 ├── zephyros/           # Pi-hole exporter, Caddy reverse proxy
 ├── hephaestus/         # vcontrold, Viessmann exporter, Flask API
 ├── astraeus/           # Windows diagnostics scripts
-└── astraeus_nx/        # CachyOS dotfiles, SSH config
+├── astraeus_nx/        # CachyOS dotfiles, SSH config
+├── clusters/           # k3s/Flux GitOps learning environment (daidalos) -- separate from the Compose stacks above
+└── wiki/               # Documentation
 ```
 
 ---
