@@ -22,6 +22,14 @@ Type=oneshot
 EnvironmentFile=/etc/restic/restic-offsite.env
 ExecStart=/usr/local/bin/restic-offsite.sh
 
+# Unit-level outcome, recorded by systemd rather than by the script.
+# ExecStopPost= runs even when ExecStart= never spawned, which is exactly the
+# blind spot that hid a 203/EXEC failure on 2026-08-20: the script could not
+# start, so it could not report that it had not started, and restic_offsite.prom
+# kept serving exit_code 0 from six weeks earlier. Writes its own .prom so the
+# two writers never race.
+ExecStopPost=/usr/local/bin/restic-unit-metrics.sh restic_offsite
+
 # Fault isolation: a failed offsite run must be visible but must not cascade.
 # No auto-restart — a transient network failure is caught by the next daily
 # run, and Restart= on a oneshot backup risks hammering a struggling uplink.

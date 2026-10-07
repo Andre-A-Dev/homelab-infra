@@ -11,13 +11,20 @@ Description=restic weekly maintenance (prune + integrity check)
 Documentation=file:///home/youruser/homelab-infra/mnemosyne/scripts/restic-maintenance.sh
 After=network-online.target
 Wants=network-online.target
-# Never prune while a backup is running against the same repo.
-Conflicts=restic-offsite.service
+# Conflicts= removed 2026-08-20. It made systemd STOP a running offsite backup
+# when maintenance started — and the 2026-08-20 run took 6h10m, so a nightly
+# run beginning at 02:16 would still have been going at Sunday 05:00.
+# Mutual exclusion now lives where it belongs: both scripts flock the same
+# /var/run/restic-repo.lock and the loser exits immediately instead of being
+# killed mid-transfer.
 
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/restic/restic-offsite.env
 ExecStart=/usr/local/bin/restic-maintenance.sh
+
+# Same reasoning as restic-offsite.service — see the comment there.
+ExecStopPost=/usr/local/bin/restic-unit-metrics.sh restic_maintenance
 
 # Prune is memory-hungry on the Pi — be a good citizen and yield to interactive
 # work. TimeoutStartSec generous because a large prune can legitimately run long.
