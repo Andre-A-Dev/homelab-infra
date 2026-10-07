@@ -1,5 +1,7 @@
 services:
+  # Disabled 2026-09: the Fusionsolar devices are no longer in use.
   fusionsolar-exporter:
+    profiles: ["disabled"]
     build: .
     container_name: fusionsolar-exporter
     environment:
