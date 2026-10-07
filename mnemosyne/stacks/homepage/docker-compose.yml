@@ -1,8 +1,9 @@
 services:
 
 # -- Homepage -------------------------------------------------------------------
-
+# Disabled 2026-09: homepage not in use anymore.
   homepage:
+    profiles: ["disabled"]
     image: ghcr.io/gethomepage/homepage:latest
     container_name: homepage
     restart: unless-stopped
