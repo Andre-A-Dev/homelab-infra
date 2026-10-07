@@ -32,30 +32,33 @@ node-exporter picks them up on the next scrape.
 
 These three scripts form a single workflow and share the same flag style.
 
-**`backup-services.sh`** — nightly backup to `/mnt/backup/<YYYY-MM-DD>/`
+**`backup-services.sh`** — nightly backup to `/mnt/backup/<YYYY-MM-DD>/`, run by
+`backup-services.timer` at 02:00
 
 | Flag | Effect |
 |---|---|
 | `--force` | Ignore change detection — back up all services unconditionally |
 | `--dry-run` | Show what would run, write nothing |
-| `--only=<service>` | Back up a single service (vaultwarden, caddy, calibre, calibre-web, kosync, syncthing, aegis, gitea, nextcloud, grafana, prometheus, stacks) |
+| `--only=<service>` | Back up a single service (vaultwarden, caddy, calibre, calibre-web, kosync, syncthing, aegis, gitea, ghost, nextcloud, immich, grafana, jobiris, gitea-runner, exporters, stacks) |
 | `--overwrite` | Replace today's backup if it already exists |
 | `--retention=<days>` | Override the default 7-day retention |
 | `--no-cleanup` | Skip the retention pruning step |
+| `--no-offsite` | Do not trigger `restic-offsite.service` after the run |
 
 Change detection uses `find -newer <timestamp>` on the source directory.
 Unchanged services write a `.SKIPPED` marker containing the date of the last
 real archive. Nextcloud enters maintenance mode for the duration of its backup.
 Writes `backup.prom` on every run (including failures) so Alertmanager can fire
-if no successful backup is seen within 25 hours.
+if no successful backup is seen within 30 hours. On a run with zero errors it
+triggers `restic-offsite.service`.
 
 **`verify-backup.sh`** — verifies the most recent backup (or `--date=YYYY-MM-DD`)
 
 Checks: archive readability (`tar -tzf`), Vaultwarden SQLite `PRAGMA integrity_check`,
 Nextcloud MariaDB dump header, disk space on both SSDs. Follows `.SKIPPED`
 markers to the referenced older archive. `--quick` skips `tar -tzf` and only
-checks file existence — used in the automated post-backup cron. Writes
-`backup_verify.prom`.
+checks file existence. Runs daily at 04:00 as the Gitea Action
+`backup-verify.yml` (over SSH). Writes `backup_verify.prom`.
 
 **`restore-services.sh`** — interactive TUI restore
 
@@ -64,6 +67,16 @@ containers, restores archives, restarts — no data is touched before explicit
 `yes` confirmation. Nextcloud: DB container stays up for the SQL import while
 the app container is down. Stack configs archive restores to the `~/stacks/`
 symlink target (homelab-infra working tree).
+
+### Offsite (restic)
+
+**`restic-offsite.sh`** — `restic backup` + `forget` of `/mnt/backup` to a
+Hetzner Storage Box, as `restic-offsite.service`. Triggered by
+`backup-services.sh` on success; `restic-offsite.timer` (06:00) is the fallback.
+**`restic-maintenance.sh`** — weekly `prune` + `check --read-data-subset=2%`
+(Sundays 05:00). **`restic-unit-metrics.sh`** — `ExecStopPost=` hook that records
+each unit's outcome as systemd sees it. Details: [scripts/README.md](scripts/README.md),
+[`scripts/SETUP_Offsite.md`](scripts/SETUP_Offsite.md).
 
 ### Monitoring helpers
 
