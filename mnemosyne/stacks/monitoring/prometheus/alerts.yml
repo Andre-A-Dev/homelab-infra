@@ -1,6 +1,11 @@
 groups:
 
-  # -- System Alerts (Mnemosyne, Boreas, Hephaestus, Zephyros) -----------------
+  # -- System Alerts -----------------------------------------------------------
+  # Servers: mnemosyne, boreas, hephaestus, zephyros — always-on, fully alerted.
+  # Workstations: AstraeusNX, Proteus, Astraeus — labelled
+  # ephemeral="true" in prometheus.yml and excluded from availability, CPU and
+  # memory alerting. Disk space alerts still apply: a filling disk is a real
+  # problem regardless of how often the machine is powered on.
   - name: system
     rules:
 
@@ -49,9 +54,11 @@ groups:
           summary: "mnemosyne: Data partition {{ $labels.mountpoint }} CRITICAL (> 90%)"
           description: "{{ $labels.mountpoint }} is {{ printf \"%.1f\" $value }}% full - action required!"
 
+      # Workstations excluded for the same reason as HighCpuLoad.
       - alert: HighMemoryUsage
         expr: |
-          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+          (1 - (node_memory_MemAvailable_bytes{ephemeral!="true"}
+              / node_memory_MemTotal_bytes{ephemeral!="true"})) * 100 > 90
         for: 5m
         labels:
           severity: warning
@@ -59,9 +66,12 @@ groups:
           summary: "{{ $labels.instance }}: Memory usage above 90%"
           description: "RAM utilisation at {{ printf \"%.1f\" $value }}%."
 
+      # Workstations excluded: sustained full load is the normal state while
+      # gaming, compiling or rendering, so this would fire during every
+      # session without telling you anything actionable.
       - alert: HighCpuLoad
         expr: |
-          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+          100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle",ephemeral!="true"}[5m])) * 100) > 80
         for: 15m
         labels:
           severity: warning
@@ -69,14 +79,18 @@ groups:
           summary: "{{ $labels.instance }}: CPU load persistently high"
           description: "CPU utilisation at {{ printf \"%.1f\" $value }}% for 15 minutes."
 
+      # Host availability only. Without the job filter this matches every
+      # scrape target, so a dead application exporter would raise "NodeDown"
+      # for a host that is perfectly healthy.
+      # Workstations carry ephemeral="true" and are excluded — they are
+      # powered off or booted into another OS on a regular basis.
       - alert: NodeDown
-        expr: up{job="node-exporter"} == 0
-        for: 2m
+        expr: up{job=~"node-exporter|windows", ephemeral!="true"} == 0
+        for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "{{ $labels.instance }}: Node Exporter unreachable"
-          description: "Host has not responded for 2 minutes."
+          summary: "{{ $labels.instance }} is unreachable"
 
   # -- Service Uptime ----------------------------------------------------------
   - name: uptime
@@ -115,6 +129,24 @@ groups:
           summary: "{{ $labels.instance }}: Pi-hole unreachable"
           description: "Pi-hole on {{ $labels.instance }} has not responded for 2 minutes."
 
+      # up only proves the exporter answered, not that it delivered anything.
+      # Twice in September 2026 it answered with nothing but its own Python
+      # process metrics while the scrape stayed green:
+      #   boreas   — API session expired, HTTP 401, restart fixes it
+      #   zephyros — Caddy took port 80, FTL moved to 8081, exporter kept
+      #              pointing at the old port after a change of our own
+      # Neither was visible to any rule here. This one watches the payload.
+      - alert: PiholeExporterNoData
+        expr: |
+          absent(pihole_query_count{instance="boreas"})
+          or absent(pihole_query_count{instance="zephyros"})
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pi-hole exporter delivers no query data"
+          description: "Scrape succeeds but no payload arrives. Check `journalctl -u pihole6-exporter`. Past causes: expired session (401, restart helps) and a port that moved out from under it."
+
       - alert: PiholeHighBlockRate
         expr: |
           sum by(instance) (pihole_query_by_status{query_status=~"GRAVITY|GRAVITY_CNAME|REGEX|REGEX_CNAME|DENYLIST|DENYLIST_CNAME|EXTERNAL_BLOCKED_IP|EXTERNAL_BLOCKED_NULL|EXTERNAL_BLOCKED_NXRA"})
@@ -125,3 +157,137 @@ groups:
         annotations:
           summary: "{{ $labels.instance }}: Unusually high block rate"
           description: "Pi-hole is blocking {{ printf \"%.1f\" $value }}% of all queries - possible DNS issue."
+
+  # -- Disk Health -------------------------------------------------------------
+  # smartctl_exporter runs on mnemosyne and daidalos. Device counts differ per
+  # host, so nothing here aggregates globally — a bare count() would compare
+  # unrelated machines against each other and never clear.
+  # Verified label set (smartctl_exporter 0.14):
+  #   smartctl_device_attribute{attribute_name, attribute_value_type, device}
+  #   smartctl_device_temperature{device, temperature_type}
+  #   smartctl_devices  (no device label — one series per instance)
+  - name: disk-health
+    rules:
+
+      # The drive's own overall verdict. Nothing else in this group outranks it.
+      - alert: DiskSmartHealthFailed
+        expr: smartctl_device_smart_status == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }}: SMART health FAILED on {{ $labels.device }}"
+          description: "The drive reports itself as failing. Back up now, then replace."
+
+      # Reallocated sectors are the earliest reliable failure signal.
+      # Any value above zero on a previously clean drive means degradation
+      # has started — this is never noise.
+      - alert: DiskReallocatedSectors
+        expr: |
+          smartctl_device_attribute{attribute_name="Reallocated_Sector_Ct",attribute_value_type="raw"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }}: reallocated sectors on {{ $labels.device }}"
+          description: "{{ $value }} reallocated sector(s). Degradation has begun — plan replacement."
+
+      # Pending sectors: unreadable, not yet remapped. Often precedes
+      # reallocation. Critical because data may already be at risk.
+      - alert: DiskPendingSectors
+        expr: |
+          smartctl_device_attribute{attribute_name="Current_Pending_Sector",attribute_value_type="raw"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }}: pending sectors on {{ $labels.device }}"
+          description: "{{ $value }} sector(s) unreadable and awaiting remap."
+
+      - alert: DiskOfflineUncorrectable
+        expr: |
+          smartctl_device_attribute{attribute_name="Offline_Uncorrectable",attribute_value_type="raw"} > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.instance }}: uncorrectable sectors on {{ $labels.device }}"
+          description: "{{ $value }} sector(s) could not be corrected."
+
+      # SATA link errors point at the cable or connector, not the media.
+      # delta() over 24h so a historic count from a past cable fault does not
+      # alert forever — only new errors do. Attribute name differs per vendor
+      # (CRC_Error_Count on Intel, UDMA_CRC_Error_Count on most others).
+      - alert: DiskCrcErrors
+        expr: |
+          delta(smartctl_device_attribute{attribute_name=~"(UDMA_)?CRC_Error_Count",attribute_value_type="raw"}[24h]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: new SATA CRC errors on {{ $labels.device }}"
+          description: "Check cable and connector before suspecting the drive."
+
+      # Spinning disks only. Identified by rotation rate instead of device name,
+      # so swapping or adding a disk never requires editing this rule.
+      - alert: DiskTemperatureHighHDD
+        expr: |
+          smartctl_device_temperature{temperature_type="current"} > 55
+          and on(instance, device) smartctl_device_rotation_rate > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: {{ $labels.device }} at {{ $value }} C"
+          description: "Spinning disk above its usual ceiling. Check rack airflow."
+
+      # Flash tolerates more heat than platters. Matches drives that do NOT
+      # report a spinning rate — SSDs either report 0 or omit the metric
+      # entirely, depending on firmware, so "unless" covers both cases.
+      - alert: DiskTemperatureHighSSD
+        expr: |
+          smartctl_device_temperature{temperature_type="current"} > 65
+          unless on(instance, device) (smartctl_device_rotation_rate > 0)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: {{ $labels.device }} at {{ $value }} C"
+
+      # Self-reporting failure mode: if the exporter dies, the metrics do not
+      # freeze at "healthy" — this fires instead.
+      - alert: SmartctlExporterDown
+        expr: up{job="smartctl"} == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: smartctl exporter unreachable"
+          description: "Disk health is no longer being monitored on this host."
+
+      # smartctl exit codes are a bitmask. Bits 6 and 7 only mean "the device
+      # or self-test log has entries" — historic and harmless on a used drive
+      # (sda reports 64 from its previous life). Bits 0-3 are the real
+      # failures: command failed, open failed, checksum error, SMART FAILING.
+      - alert: DiskSmartctlCommandFailed
+        expr: |
+          smartctl_device_smartctl_exit_status > 0
+          and (smartctl_device_smartctl_exit_status % 16) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: smartctl reports code {{ $value }} for {{ $labels.device }}"
+          description: "Low bits set — command, access or health failure, not just log entries."
+
+      # Coverage guard. Compares each host against its own 7-day maximum
+      # instead of a hardcoded number, so it survives adding a disk and still
+      # catches a disk silently dropping out of the scan.
+      - alert: SmartctlCoverageDropped
+        expr: smartctl_devices < max_over_time(smartctl_devices[7d])
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }}: SMART coverage dropped to {{ $value }} device(s)"
+          description: "A disk disappeared from the scan. Check permissions, cabling, power."
