@@ -1,6 +1,26 @@
-{
-    # Disable HTTP redirect – port 80 belongs to Pi-hole
-    auto_https disable_redirects
+# Zephyros – Caddy Reverse Proxy
+# - pihole.home -> local Pi-hole web UI (host port 8081)
+# - all other .home domains -> Mnemosyne's Caddy via Tailscale (100.x.x.x)
+#
+# Port 80 belongs to Caddy (Pi-hole moved to 8081), so the automatic
+# HTTP -> HTTPS redirect is active for every site.
+# After relocation: replace 100.x.x.x with Mnemosyne's local IP (one place).
+
+# -- Snippet: proxy to Mnemosyne ------------------------------------------
+# Usage: import mnemosyne <hostname>
+# Sets Host header and TLS SNI so Mnemosyne's Caddy picks the right site/cert.
+
+(mnemosyne) {
+    tls internal
+    reverse_proxy https://100.x.x.x {
+        header_up Host {args[0]}
+        transport http {
+            # Mnemosyne uses its own internal CA; tunnel is encrypted by Tailscale
+            tls_insecure_skip_verify
+            tls_server_name {args[0]}
+            versions 1.1
+        }
+    }
 }
 
 # -- Pihole ---------------------------------------------------------------
@@ -8,108 +28,54 @@
 pihole.home {
     tls internal
     redir / /admin/ 301
-    reverse_proxy http://172.19.0.1:80
+    reverse_proxy http://host.docker.internal:8081
 }
 
 # -- Git ------------------------------------------------------------------
 
 git.home {
-    tls internal
-    reverse_proxy https://git.home {
-        header_up Host git.home
-        transport http {
-            tls_insecure_skip_verify
-            versions 1.1
-        }
-    }
+    import mnemosyne git.home
 }
 
-# -- Homepage --------------------------------------------------------------
+# -- Vault ----------------------------------------------------------------
+vault.home {
+    import mnemosyne vault.home
+}
+
+# -- Homepage -------------------------------------------------------------
 
 homepage.home {
-    tls internal
-    reverse_proxy https://homepage.home {
-        header_up Host homepage.home
-        transport http {
-            tls_insecure_skip_verify
-            versions 1.1
-        }
-    }
+    import mnemosyne homepage.home
 }
 
-# -- Grafana --------------------------------------------------------------
+# -- Monitoring -----------------------------------------------------------
 
 grafana.home {
-    tls internal
-    reverse_proxy https://grafana.home {
-        header_up Host grafana.home
-        transport http {
-            tls_insecure_skip_verify
-            versions 1.1
-        }
-    }
+    import mnemosyne grafana.home
 }
-
-# -- Prometheus ------------------------------------------------------------
 
 prometheus.home {
-    tls internal
-    reverse_proxy https://prometheus.home {
-        header_up Host prometheus.home
-        transport http {
-            tls_insecure_skip_verify
-            versions 1.1 
-        }
-    }
+    import mnemosyne prometheus.home
 }
 
-# -- Ghost -----------------------------------------------------------------
+# -- Ghost ----------------------------------------------------------------
 
 ghostwrite.home {
-    tls internal
-    reverse_proxy https://ghostwrite.home {
-        header_up Host ghostwrite.home
-        transport http {
-            tls_insecure_skip_verify
-                        versions 1.1
-        }
-    }
+    import mnemosyne ghostwrite.home
 }
 
 ghostproxy.home {
-    tls internal
-    reverse_proxy https://ghostproxy.home {
-        header_up Host ghostproxy.home
-        transport http {
-            tls_insecure_skip_verify
-                        versions 1.1
-        }
-    }
+    import mnemosyne ghostproxy.home
 }
 
 # -- Immich ---------------------------------------------------------------
 
 immich.home {
-    tls internal
-
-    reverse_proxy https://100.x.x.x {
-        header_up Host immich.home
-        transport http {
-            tls_insecure_skip_verify
-        }
-    }
+    import mnemosyne immich.home
 }
 
-# -- Carousel ---------------------------------------------------------------------
+# -- Carousel -------------------------------------------------------------
 
 carousel.home {
-    tls internal
-    reverse_proxy https://100.x.x.x {
-        header_up Host carousel.home
-        transport http {
-            tls_insecure_skip_verify
-            tls_server_name carousel.home
-            versions 1.1
-        }
-    }
+    import mnemosyne carousel.home
 }

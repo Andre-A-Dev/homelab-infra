@@ -6,7 +6,11 @@ services:
     container_name: caddy
     restart: unless-stopped
     ports:
+      - "80:80"
       - "443:443"
+      - "443:443/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data:/data
