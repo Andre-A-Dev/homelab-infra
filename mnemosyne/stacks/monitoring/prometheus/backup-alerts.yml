@@ -1,0 +1,389 @@
+---
+# =============================================================================
+# backup-alerts.yml
+# =============================================================================
+# Alert rules for the local backup, its verification, and the decoupled restic
+# offsite service.
+#
+# Design note: none of these rules alert on an exit code alone. Textfile
+# collector metrics do not disappear when their producer stops running — the
+# file stays on disk and node_exporter keeps serving the last values it was
+# given. A stalled service therefore reports its final successful state
+# indefinitely. Every rule below is anchored on the AGE of a timestamp, with
+# absent() as a second line of defence for the case where the file is deleted
+# entirely.
+#
+# Validate before committing:
+#   promtool check rules backup-alerts.yml
+# =============================================================================
+
+groups:
+  - name: backup
+    rules:
+
+      # ── Local backup ─────────────────────────────────────────────────────
+      - alert: BackupStale
+        expr: time() - backup_last_success_timestamp > 30 * 3600
+        for: 15m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "Local backup has not succeeded in over 30 hours"
+          description: >-
+            Last successful run of backup-services.sh was
+            {{ $value | humanizeDuration }} ago. Check
+            backup-services.timer (02:00 daily) and the unit's last run.
+
+      - alert: BackupMetricsMissing
+        expr: absent(backup_last_success_timestamp)
+        for: 30m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "backup.prom is missing entirely"
+          description: >-
+            No backup metrics are being exposed. Either the textfile collector
+            path is wrong or backup-services.sh has never completed a run since
+            the last reboot.
+
+      - alert: BackupFailed
+        expr: backup_last_exit_code > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Last backup run reported {{ $value }} error(s)"
+          description: "Check /var/log/backup-services.log for the failing step."
+
+      # ── Per-service coverage ─────────────────────────────────────────────
+      - alert: BackupServiceFailed
+        expr: backup_step_status == 1
+        for: 10m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Backup step failed: {{ $labels.service }}"
+          description: >-
+            The {{ $labels.service }} step did not complete. If the cause is a
+            missing or empty source path, the stack's mounts have drifted from
+            SOURCE_PATHS in backup-services.sh.
+
+      - alert: BackupArchiveSuspiciouslySmall
+        expr: backup_archive_size_bytes < 1024
+        for: 10m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "Backup archive for {{ $labels.service }} is only {{ $value }} bytes"
+          description: >-
+            An archive this size contains no data. A tar.gz of an empty
+            directory is roughly 85-105 bytes and opens without error — this is
+            what four services produced for nine nights in August 2026 after
+            their mounts moved and the script kept archiving orphaned volumes.
+
+      - alert: BackupMountDrift
+        expr: backup_uncovered_mounts > 0
+        for: 1h
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "{{ $value }} container mount(s) have no backup coverage"
+          description: >-
+            A running container binds a persistent path under /mnt/codex or
+            /mnt/vault that is not in SOURCE_PATHS. Either add it to the backup
+            or add it to DRIFT_IGNORE with a comment explaining what covers it.
+
+      # ── Verification ─────────────────────────────────────────────────────
+      - alert: BackupVerifyStale
+        expr: time() - backup_verify_last_run_timestamp > 30 * 3600
+        for: 15m
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Backup verification has not run in over 30 hours"
+          description: >-
+            An unverified backup is an assumption, not a backup. Check the
+            backup-verify.yml workflow schedule (cron 0 4 UTC = 06:00 CEST).
+
+      # verify-backup.sh cross-checks itself against VALID_SERVICES in
+      # backup-services.sh. On 2026-08-30 a patch built from a stale copy
+      # silently dropped the Immich checks: a 43 GB archive and a 126 MB dump
+      # were produced nightly and verified by nobody, while the summary read
+      # "All checks passed". Absence of a check looked exactly like a passed
+      # check, so the count below must be zero.
+      - alert: BackupCheckCoverageGap
+        expr: backup_verify_uncovered_services > 0
+        for: 30m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "{{ $value }} backed-up service(s) have no verification check"
+          description: >-
+            A service is declared in VALID_SERVICES but verify-backup.sh has no
+            check for it. Its archive is written every night and never
+            validated.
+
+      - alert: BackupVerifyFailed
+        expr: backup_verify_fail_count > 0
+        for: 10m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "Backup verification failed {{ $value }} check(s)"
+          description: "Run: sudo verify-backup.sh"
+
+      # ── Unit-level truth for the local backup ────────────────────────────
+      # backup-services.sh moved from cron to systemd on 2026-09-03 and now
+      # writes these via ExecStopPost, exactly like the restic units. They
+      # catch what the script cannot report about itself: 203/EXEC, OOM kill,
+      # timeout, a missing executable bit — anything that kills it before its
+      # first line runs.
+      - alert: BackupUnitFailed
+        expr: backup_services_unit_success == 0
+        for: 10m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "systemd reports the nightly backup unit failed ({{ $labels.result }})"
+          description: >-
+            The unit did not finish successfully. If backup.prom still looks
+            healthy, the script never ran at all. Check:
+            systemctl status backup-services.service
+
+      - alert: BackupUnitStale
+        expr: >-
+          absent(backup_services_unit_last_finish_timestamp)
+          or time() - backup_services_unit_last_finish_timestamp > 30 * 3600
+        for: 1h
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "systemd has not seen the nightly backup finish in over 30h"
+          description: >-
+            Either backup-services.timer is not firing or the unit is hanging.
+            Independent of the script's own metrics on purpose.
+
+      # ── Offsite (restic, decoupled) ──────────────────────────────────────
+      - alert: OffsiteBackupStale
+        expr: time() - restic_offsite_last_success_timestamp > 72 * 3600
+        for: 30m
+        labels:
+          severity: critical
+          component: offsite
+        annotations:
+          summary: "Offsite backup has not succeeded in over 72 hours"
+          description: >-
+            Last successful restic run was {{ $value | humanizeDuration }} ago.
+            Without it the 3-2-1 rule is a 2-1-0. Check:
+            systemctl status restic-offsite.service restic-offsite.timer
+
+      # Upper bound is deliberate: without it this fires alongside
+      # OffsiteBackupStale once the gap passes 72h, and the inhibition rule in
+      # alertmanager.yml does not suppress it because that rule matches on
+      # equal alertname. Observed 2026-08-20 — both alerts delivered for the
+      # same condition.
+      - alert: OffsiteBackupWarning
+        expr: >-
+          time() - restic_offsite_last_success_timestamp > 30 * 3600
+          and time() - restic_offsite_last_success_timestamp <= 72 * 3600
+        for: 30m
+        labels:
+          severity: warning
+          component: offsite
+        annotations:
+          summary: "Offsite backup is overdue"
+          description: >-
+            Expected daily. The fallback timer fires at 06:00; if this is firing
+            the timer is disabled or the service is failing.
+
+      # Unit-level truth, written by systemd via ExecStopPost. Catches the class
+      # of failure the script cannot report about itself: 203/EXEC, OOM kill,
+      # timeout, hardening violation — anything that kills it before its first
+      # line. On 2026-08-20 a 203/EXEC went unnoticed for hours because
+      # restic_offsite_exit_code was frozen at 0 from six weeks earlier.
+      - alert: OffsiteUnitFailed
+        expr: restic_offsite_unit_success == 0
+        for: 10m
+        labels:
+          severity: critical
+          component: offsite
+        annotations:
+          summary: "systemd reports the offsite unit failed ({{ $labels.result }})"
+          description: >-
+            The unit did not finish successfully. If the script's own metrics
+            still look healthy, it never ran at all. Check:
+            systemctl status restic-offsite.service
+
+      - alert: OffsiteUnitStale
+        expr: >-
+          absent(restic_offsite_unit_last_finish_timestamp)
+          or time() - restic_offsite_unit_last_finish_timestamp > 72 * 3600
+        for: 1h
+        labels:
+          severity: warning
+          component: offsite
+        annotations:
+          summary: "systemd has not seen the offsite unit finish in over 72h"
+          description: >-
+            Either the timer is not firing or the unit is hanging. This is
+            independent of the script's own success metric on purpose.
+
+      - alert: MaintenanceUnitFailed
+        expr: restic_maintenance_unit_success == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: offsite
+        annotations:
+          summary: "Weekly restic maintenance failed ({{ $labels.result }})"
+          description: >-
+            Without prune the Storage Box grows without bound. Check:
+            systemctl status restic-maintenance.service
+
+      - alert: MaintenanceStale
+        expr: >-
+          absent(restic_maintenance_unit_last_finish_timestamp)
+          or time() - restic_maintenance_unit_last_finish_timestamp > 10 * 86400
+        for: 1h
+        labels:
+          severity: warning
+          component: offsite
+        annotations:
+          summary: "Weekly restic maintenance has not run in over 10 days"
+          description: >-
+            Expected weekly (Sun 05:00). Check that restic-maintenance.timer is
+            enabled — restic-offsite.timer was found disabled on 2026-08-20.
+
+      - alert: OffsiteMetricsMissing
+        expr: absent(restic_offsite_last_success_timestamp)
+        for: 1h
+        labels:
+          severity: critical
+          component: offsite
+        annotations:
+          summary: "restic_offsite.prom is missing entirely"
+          description: >-
+            No offsite metrics are being exposed at all.
+
+      # exit_code 2 and 3 mean different things and need different responses:
+      # 2 = no new offsite copy exists. 3 = the copy exists, retention does not.
+      - alert: OffsiteBackupFailed
+        expr: restic_offsite_exit_code == 2
+        for: 10m
+        labels:
+          severity: critical
+          component: offsite
+        annotations:
+          summary: "restic backup failed — no new offsite copy"
+          description: "Check: journalctl -u restic-offsite.service -n 100"
+
+      - alert: OffsiteRetentionFailed
+        expr: restic_offsite_forget_ok == 0
+        for: 30m
+        labels:
+          severity: warning
+          component: offsite
+        annotations:
+          summary: "restic forget is failing — snapshots accumulating"
+          description: >-
+            The backup itself is fine; retention is not. Most likely a stale
+            repository lock — a lock from 2026-07-11 blocked every retention
+            run for six weeks. Check: restic list locks / restic unlock
+
+      # ── Capacity ─────────────────────────────────────────────────────────
+      # Absolute free space, not percent. The backup drive is a 3.6 TB HDD
+      # since the 2026-08 migration, and on that size a percentage says
+      # nothing useful: 85% used still leaves ~540 GB, which is seven more
+      # nightly runs. The meaningful unit is "how many backups still fit".
+      #
+      # One nightly run writes roughly 73 GB (Nextcloud ~29 + Immich ~44);
+      # a full 7-day retention window is around 510 GB.
+      - alert: BackupDiskFillingUp
+        expr: backup_disk_free_gb < 500
+        for: 1h
+        labels:
+          severity: warning
+          component: backup
+        annotations:
+          summary: "Backup HDD down to {{ $value }}G free"
+          description: >-
+            Roughly one retention cycle left. Weeks of runway — prune retention
+            or add capacity before it becomes urgent.
+
+      - alert: BackupDiskCritical
+        expr: backup_disk_free_gb < 200
+        for: 30m
+        labels:
+          severity: critical
+          component: backup
+        annotations:
+          summary: "Only {{ $value }}G free on the backup HDD"
+          description: >-
+            About three nightly runs left, and backup-services.sh refuses to
+            start below MIN_FREE_GB=150. Once crossed, no further backups are
+            taken at all.
+
+  # ===========================================================================
+  # Textfile collector freshness — generic
+  # ===========================================================================
+  # node_exporter exposes node_textfile_mtime_seconds{file="..."} for every
+  # .prom file it reads. That is a free, exporter-side staleness signal for
+  # EVERY custom metric on this host, not just the backup ones.
+  #
+  # This matters because textfile metrics do not disappear when their producer
+  # dies — the file stays on disk and node_exporter keeps serving the last
+  # values it was given. restic_offsite.prom reported exit_code 0 for 43 days
+  # after the service went inactive. Per-metric staleness rules catch that one
+  # file at a time; this rule catches all of them at once, including exporters
+  # written after these rules were.
+  #
+  # VERIFY the metric name before relying on this:
+  #   curl -s localhost:9100/metrics | grep node_textfile
+  # ===========================================================================
+  - name: textfile
+    rules:
+
+      # Threshold is deliberately loose (8 days, not 26 hours). The producers
+      # here run on different cadences — backup.prom nightly, system_update.prom
+      # less often — and one global tight threshold would fire constantly on the
+      # slow ones. This rule is the safety net for a producer that has stopped
+      # entirely; tight per-metric thresholds belong in the specific rules
+      # (BackupStale, OffsiteUnitStale, MaintenanceStale) where the expected
+      # cadence is actually known.
+      - alert: TextfileMetricsStale
+        expr: time() - node_textfile_mtime_seconds > 8 * 86400
+        for: 1h
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "Textfile metrics not updated in {{ $value | humanizeDuration }}: {{ $labels.file }}"
+          description: >-
+            The producer of this .prom file has stopped writing. Its values are
+            frozen at whatever they were when it last ran, so any rule reading
+            them is reporting history, not state. Either fix the producer or
+            delete the .prom — a file nobody writes is worse than no file.
+
+      - alert: TextfileCollectorErrors
+        expr: node_textfile_scrape_error > 0
+        for: 15m
+        labels:
+          severity: warning
+          component: monitoring
+        annotations:
+          summary: "node_exporter cannot parse one or more .prom files"
+          description: >-
+            A malformed or half-written .prom file. Check that every producer
+            writes to a temp file and mv's into place — mv within one
+            filesystem is atomic, a direct write is not.
