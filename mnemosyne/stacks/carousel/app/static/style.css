@@ -1,0 +1,337 @@
+/* Carousel UI
+   Palette taken from the Wolfkin template itself: moss panel, birch text,
+   glacier blue and ember red. Light theme = misty forest, dark theme =
+   forest at night. All text/background pairs are >= 4.5:1, control
+   borders >= 3:1 (WCAG 2.1 AA, 1.4.3 / 1.4.11). */
+
+@font-face {
+  font-family: "Cabin";
+  src: url("fonts/Cabin.ttf") format("truetype");
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light dark;
+  --bg: #EDF1ED;
+  --surface: #F8FAF8;
+  --line: #C9D3CC;          /* decorative dividers only */
+  --control-line: #6F7F76;  /* borders that identify a control: >= 3:1 */
+  --text: #1C2A22;
+  --muted: #4E5E55;
+  --forest: #2F4A3C;
+  --on-forest: #F3ECE4;
+  --panel: #415347;
+  --on-panel: #EFE6DD;
+  --panel-edge: #415347;
+  --glacier: #2B6B73;
+  --ember: #9E3B2E;
+  --warn-bg: #FBF0DF; --warn-edge: #B8741A; --warn-text: #5E3906;
+  --err-bg: #F8E6E2;  --err-edge: #9E3B2E;  --err-text: #7A2A1F;
+  --ok-bg: #E4F0E8;   --ok-edge: #3F7A5B;   --ok-text: #1D4A33;
+  --focus: #1F6A74;
+  --radius-s: 8px;
+  --radius-m: 14px;
+  --radius-l: 22px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131C17;
+    --surface: #1A2520;
+    --line: #2F3E35;
+    --control-line: #6E7F75;
+    --text: #E9E0D7;
+    --muted: #A9B3AC;
+    --forest: #A9CDB7;
+    --on-forest: #11241A;
+    --panel: #33463A;
+    --on-panel: #EDE3DA;
+    --panel-edge: #6E7F75;  /* panel alone is only 1.7:1 against the night bg */
+    --glacier: #86C1C8;
+    --ember: #E6998D;
+    --warn-bg: #2C2415; --warn-edge: #D9A25A; --warn-text: #F2D6AA;
+    --err-bg: #2E1C19;  --err-edge: #E6998D;  --err-text: #F1B8AE;
+    --ok-bg: #1C2E24;   --ok-edge: #6FB08C;   --ok-text: #CDE9D8;
+    --focus: #86C1C8;
+  }
+}
+
+/* iOS Dynamic Type: follow the user's text size setting in Safari. */
+html { font-size: 106.25%; }
+@supports (font: -apple-system-body) {
+  html { font: -apple-system-body; }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  line-height: 1.55;
+  -webkit-text-size-adjust: 100%;
+}
+
+h1, h2, h3 {
+  font-family: "Cabin", system-ui, sans-serif;
+  font-weight: 700;
+  line-height: 1.2;
+}
+h1 { font-size: 2.1rem; margin: 0.25em 0 0.35em; letter-spacing: -0.01em; }
+h2 { font-size: 1.35rem; margin: 2.2rem 0 0.6rem; }
+h3 { font-size: 1.05rem; margin: 1.2rem 0 0.3rem; }
+p { margin: 0 0 0.8rem; }
+
+a { color: var(--glacier); text-underline-offset: 0.18em; }
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
+
+[hidden] { display: none !important; }
+/* Headings receive focus programmatically (autofocus for VoiceOver);
+   they are not interactive, so no visible focus ring. */
+h1[tabindex="-1"]:focus { outline: none; }
+html:not(.js) .js-only { display: none !important; }
+
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ── Page frame ─────────────────────────────────────────────────────── */
+.site {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 0.75rem 1rem 0;
+}
+.brand {
+  display: inline-flex; align-items: center; gap: 0.55rem;
+  min-height: 44px;
+  color: var(--text); text-decoration: none;
+  font-family: "Cabin", system-ui, sans-serif; font-weight: 700; font-size: 1.1rem;
+}
+.brand img { width: 30px; height: 30px; border-radius: 8px; }
+
+main { max-width: 40rem; margin: 0 auto; padding: 0.5rem 1rem 4rem; }
+main.wide { max-width: 64rem; }
+
+.lead { color: var(--muted); font-size: 1.05rem; max-width: 34rem; margin-bottom: 1.6rem; }
+
+/* ── Notices ────────────────────────────────────────────────────────── */
+.notice {
+  margin: 1rem 0;
+  padding: 0.8rem 1rem;
+  border-left: 5px solid;
+  border-radius: 0 var(--radius-s) var(--radius-s) 0;
+  font-weight: 600;
+}
+.notice p:last-child, .notice ul:last-child { margin-bottom: 0; }
+.notice ul { margin: 0.3rem 0 0; padding-left: 1.2rem; font-weight: 500; }
+.notice.error { background: var(--err-bg); border-color: var(--err-edge); color: var(--err-text); }
+.notice.warn  { background: var(--warn-bg); border-color: var(--warn-edge); color: var(--warn-text); }
+.notice.ok    { background: var(--ok-bg); border-color: var(--ok-edge); color: var(--ok-text); }
+
+/* ── Form ───────────────────────────────────────────────────────────── */
+/* fieldset defaults to min-width: min-content and would grow with wide
+   content (e.g. the help example), pushing the page wider than the screen */
+fieldset { border: none; padding: 0; margin: 0; min-width: 0; }
+
+.field-label { display: block; font-weight: 650; margin: 1.5rem 0 0.35rem; }
+.hint { color: var(--muted); font-size: 0.92rem; margin: 0 0 0.5rem; }
+
+select, input[type="file"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1.5px solid var(--control-line);
+  border-radius: var(--radius-s);
+}
+
+/* Signature element: the text field looks like the slide panel it becomes. */
+textarea.panel {
+  display: block;
+  width: 100%;
+  min-height: 22rem;
+  padding: 1.2rem 1.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: var(--on-panel);
+  caret-color: var(--on-panel);
+  background: var(--panel);
+  border: 1.5px solid var(--panel-edge);
+  border-radius: var(--radius-l);
+  resize: vertical;
+}
+textarea.panel::selection { background: var(--on-panel); color: var(--panel); }
+
+.check { display: flex; gap: 0.7rem; align-items: center; margin-top: 1.5rem; min-height: 44px; }
+.check input { width: 1.5rem; height: 1.5rem; margin: 0; accent-color: var(--forest); flex-shrink: 0; }
+.check label { font-weight: 650; }
+
+/* ── Buttons ────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  min-height: 48px;
+  padding: 0.65rem 1.4rem;
+  font-family: inherit; font-size: 1.05rem; font-weight: 650; line-height: 1.2;
+  text-decoration: none;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.btn-primary { background: var(--forest); color: var(--on-forest); border: 2px solid var(--forest); }
+.btn-secondary { background: transparent; color: var(--text); border: 1.5px solid var(--control-line); }
+.btn-small { min-height: 44px; padding: 0.45rem 1rem; font-size: 0.92rem; }
+.btn:disabled { opacity: 0.6; cursor: progress; }
+.btn-wide { width: 100%; }
+@media (min-width: 30rem) { .btn-wide { width: auto; } }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.9rem 0; }
+.submit-row { margin-top: 2rem; }
+
+/* ── Help (collapsible) ─────────────────────────────────────────────── */
+details.help {
+  margin-top: 1.5rem;
+  background: var(--surface);
+  border: 1.5px solid var(--control-line);
+  border-radius: var(--radius-m);
+}
+details.help > summary {
+  display: flex; align-items: center; gap: 0.6rem;
+  min-height: 48px;
+  padding: 0.6rem 1rem;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+details.help > summary::-webkit-details-marker { display: none; }
+details.help > summary::before {
+  content: "";
+  width: 0.55rem; height: 0.55rem;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  flex-shrink: 0;
+}
+details.help[open] > summary::before { transform: rotate(45deg); }
+details.help[open] > summary { border-bottom: 1px solid var(--line); }
+.help-body { padding: 0.2rem 1.1rem 1.1rem; }
+.help-body .help-h { font-size: 1.05rem; margin: 1.2rem 0 0.3rem; }
+.help-body .help-h:first-child { margin-top: 0.8rem; }
+.help-body ul { margin: 0 0 0.6rem; padding-left: 1.2rem; }
+.help-body li { margin-bottom: 0.35rem; }
+
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+code { padding: 0.08em 0.35em; border-radius: 5px; background: color-mix(in srgb, var(--panel) 14%, transparent); }
+pre {
+  margin: 0.3rem 0 0;
+  padding: 0.9rem 1rem;
+  white-space: pre-wrap;       /* wrap instead of a keyboard-unreachable scroll area */
+  overflow-wrap: anywhere;
+  color: var(--on-panel);
+  background: var(--panel);
+  border-radius: var(--radius-m);
+  line-height: 1.55;
+}
+
+/* ── Waiting page ───────────────────────────────────────────────────── */
+.progress-box {
+  margin-top: 1.5rem;
+  padding: 1.4rem 1.3rem 1.2rem;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-l);
+}
+.stage { font-family: "Cabin", system-ui, sans-serif; font-weight: 700; font-size: 1.25rem; margin: 0 0 0.8rem; }
+.detail { color: var(--muted); margin: 0.6rem 0 0; min-height: 1.55em; }
+
+progress {
+  -webkit-appearance: none; appearance: none;
+  display: block; width: 100%; height: 14px;
+  border: none; border-radius: 999px;
+  background: var(--line);
+  color: var(--forest);
+  overflow: hidden;
+}
+progress::-webkit-progress-bar { background: var(--line); border-radius: 999px; }
+progress::-webkit-progress-value { background: var(--forest); border-radius: 999px; transition: width 0.4s ease; }
+progress::-moz-progress-bar { background: var(--forest); border-radius: 999px; }
+
+/* ── Result page ────────────────────────────────────────────────────── */
+.share-box {
+  margin-top: 0.4rem;
+  padding: 1.2rem 1.3rem;
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-l);
+}
+.share-box h2 { margin-top: 0; }
+
+.layout { list-style: none; margin: 0.4rem 0 0; padding: 0 0 0 1rem; border-left: 3px solid var(--line); }
+.layout li { margin-bottom: 0.45rem; }
+
+.slide-grid {
+  list-style: none; margin: 1rem 0 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.6rem 0.9rem;
+  align-items: start;
+}
+@media (min-width: 46rem) { .slide-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 60rem) { .slide-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+.slide-card { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.slide-card h3 { margin: 0; font-size: 1rem; }
+.thumb {
+  display: block;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--radius-m);
+  overflow: hidden;
+  background: var(--line);
+}
+.thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.over-limit .thumb img { opacity: 0.4; }
+.limit-note { margin: 0; font-size: 0.88rem; font-weight: 650; color: var(--warn-text); }
+.alt-block {
+  font-size: 0.88rem; color: var(--muted);
+  /* visual clamp only: screen readers and the copy button get the full text */
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+.copy-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; }
+.copied { font-size: 0.88rem; font-weight: 650; color: var(--ok-text); }
+
+/* ── Viewer dialog ──────────────────────────────────────────────────── */
+dialog.viewer {
+  width: min(94vw, 40rem);
+  max-height: 94vh;
+  padding: 1rem 1rem 1.2rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-l);
+}
+dialog.viewer::backdrop { background: rgba(8, 14, 11, 0.74); }
+.viewer-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.viewer-top h2 { margin: 0; font-size: 1.2rem; }
+.viewer-stage { margin: 0.8rem 0 0; touch-action: pan-y; }
+.viewer-stage img {
+  display: block; width: 100%; max-height: 55vh; object-fit: contain;
+  border-radius: var(--radius-m); background: var(--bg);
+}
+.viewer-nav { display: flex; justify-content: space-between; gap: 0.6rem; margin-top: 0.8rem; }
+.viewer-alt { margin: 0.9rem 0 0.5rem; font-size: 0.95rem; }  /* the dialog scrolls as a whole */
+.viewer .limit-note { margin-top: 0.6rem; }
+
+@media (prefers-reduced-motion: no-preference) {
+  dialog.viewer[open] { animation: viewer-in 0.18s ease-out; }
+  @keyframes viewer-in { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: none; } }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
