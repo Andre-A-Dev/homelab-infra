@@ -156,9 +156,12 @@ Devices on the remote's network without Tailscale can access these `.home` servi
 | Docker data root | `/mnt/codex/docker/` | Mnemosyne |
 | containerd root | `/mnt/codex/containerd/` | Mnemosyne |
 | Backup target (local) | `/mnt/backup/` | Mnemosyne (UUID `XXXX-XXXX`) |
-| Backup target (offsite) | Hetzner Storage Box, via `rclone` remote `hetzner-crypt:` (SFTP + client-side encryption) | External — Germany/Finland |
-| rclone config | `~/.config/rclone/rclone.conf` | Mnemosyne |
-| Offsite SSH key | `~/.ssh/hetzner_storagebox` (no passphrase — used by unattended cron) | Mnemosyne |
+| Backup target (offsite) | Hetzner Storage Box, restic repository over SFTP (client-side encryption) | External — Germany/Finland |
+| restic config | `/etc/restic/restic-offsite.env` (mode `600`) | Mnemosyne |
+| restic repository password | `/root/.config/restic/password` (mode `600`; copies in Vaultwarden + offline) | Mnemosyne |
+| restic cache | `/var/cache/restic/` | Mnemosyne |
+| Offsite SSH key | `~/.ssh/hetzner_storagebox` (no passphrase — used by the unattended systemd units) | Mnemosyne |
+| Backup metrics | `/var/lib/node_exporter/textfile_collector/{backup,backup_verify,restic_offsite,restic_maintenance}.prom` + `*_unit.prom` | Mnemosyne |
 | vcontrold config | `/etc/vcontrold/` | Hephaestus |
 | Viessmann metrics | `/var/lib/node_exporter/textfile_collector/viessmann.prom` | Hephaestus |
 | Viessmann change log | `/var/log/viessmann-control.log.json` | Hephaestus |
@@ -174,5 +177,8 @@ Devices on the remote's network without Tailscale can access these `.home` servi
 | `/usr/local/bin/backup-services.sh` | `~/homelab-infra/mnemosyne/scripts/backup-services.sh` |
 | `/usr/local/bin/verify-backup.sh` | `~/homelab-infra/mnemosyne/scripts/verify-backup.sh` |
 | `/usr/local/bin/restore-services.sh` | `~/homelab-infra/mnemosyne/scripts/restore-services.sh` |
+| `/usr/local/bin/restic-offsite.sh` | `~/homelab-infra/mnemosyne/scripts/restic-offsite.sh` |
+| `/usr/local/bin/restic-maintenance.sh` | `~/homelab-infra/mnemosyne/scripts/restic-maintenance.sh` |
+| `/usr/local/bin/restic-unit-metrics.sh` | `~/homelab-infra/mnemosyne/scripts/restic-unit-metrics.sh` |
 | `/usr/local/bin/tailscale-metrics.sh` | `~/homelab-infra/mnemosyne/scripts/tailscale-metrics.sh` |
 | `/usr/local/bin/fan-metrics.sh` | `~/homelab-infra/mnemosyne/scripts/fan-metrics.sh` |
