@@ -1,84 +1,157 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Karussell-Generator</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body {
-      font-family: -apple-system, system-ui, sans-serif;
-      max-width: 44rem; margin: 0 auto; padding: 1rem;
-      line-height: 1.5; font-size: 1.05rem;
-    }
-    label { display: block; font-weight: 600; margin: 1.25rem 0 0.3rem; }
-    textarea, select, input[type=file] {
-      width: 100%; font-size: 1rem; padding: 0.6rem;
-      border: 2px solid #888; border-radius: 8px; box-sizing: border-box;
-    }
-    textarea { min-height: 16rem; font-family: inherit; }
-    button {
-      margin-top: 1.5rem; font-size: 1.15rem; font-weight: 600;
-      padding: 0.8rem 1.6rem; border-radius: 10px; border: 2px solid #444;
-      cursor: pointer;
-    }
-    .error {
-      border: 2px solid #b00020; border-radius: 8px;
-      padding: 0.8rem; margin: 1rem 0; font-weight: 600;
-    }
-    .hint { font-weight: 400; font-size: 0.95rem; margin: 0.2rem 0 0; }
-    fieldset { border: none; padding: 0; margin: 0; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Karussell-Generator</h1>
-    <p>Erzeugt aus deinem Text fertige Bilder für einen Instagram-Karussell-Beitrag.</p>
-  </header>
-
+{% extends "base.html" %}
+{% block title %}Neuer Beitrag – Karussell{% endblock %}
+{% block body %}
   <main>
-    {% if error %}
-    <div class="error" role="alert" aria-live="assertive" id="error">
-      Fehler: {{ error }}
-    </div>
-    {% endif %}
+    <h1>Neuer Beitrag</h1>
+    <p class="lead">Aus deinem Text werden fertige Instagram-Folien. Titelgröße und Aufteilung übernimmt der Generator.</p>
 
-    <section aria-labelledby="howto">
-      <h2 id="howto">So funktioniert es</h2>
-      <p>Die erste Zeile ist der Titel und beginnt mit Raute und Leerzeichen, zum Beispiel: <strong># Mein Titel</strong>.
-      Absätze trennst du mit einer Leerzeile.
-      Einen Trigger-Abschnitt beginnst du mit einer Zeile <strong>## TW: Thema</strong>
-      und beendest ihn mit einer Zeile <strong>## ENDE TW</strong>.
-      Der Text wird automatisch auf so viele Folien verteilt wie nötig.</p>
-      <p>Formatierung im Text:
-      <strong>**fett**</strong>,
-      <em>*kursiv*</em>,
-      <u>__unterstrichen__</u>,
-      <s>~~durchgestrichen~~</s>.</p>
-    </section>
+    {% if error %}
+    <div class="notice error" role="alert">Fehler: {{ error }}</div>
+    {% endif %}
+    {% if message %}
+    <div class="notice ok" role="status">{{ message }}</div>
+    {% endif %}
 
     <form action="/render" method="post" enctype="multipart/form-data">
       <fieldset>
-        <label for="template">Design-Vorlage</label>
+        <label class="field-label" for="template">Design-Vorlage</label>
         <select id="template" name="template" required>
           {% for t in templates %}
-          <option value="{{ t.id }}">{{ t.name }}</option>
+          <option value="{{ t.id }}" {% if t.id == prefill.template %}selected{% endif %}>{{ t.name }}</option>
           {% endfor %}
         </select>
 
-        <label for="markdown">Dein Text</label>
-        <p class="hint" id="markdown-hint">Titel in der ersten Zeile mit Raute, dann der Beitragstext.</p>
-        <textarea id="markdown" name="markdown" aria-describedby="markdown-hint"
-                  autocomplete="off" spellcheck="true"></textarea>
+        <details class="help">
+          <summary>Anleitung und Formatierung</summary>
+          <div class="help-body">
+            <h2 class="help-h">Aufbau</h2>
+            <ul>
+              <li><code># Titel</code> in der ersten Zeile wird zur Titelfolie. Die Schriftgröße passt sich automatisch an.</li>
+              <li>Eine Leerzeile beginnt einen neuen Absatz. Absätze werden möglichst nicht über zwei Folien getrennt.</li>
+              <li><code>---</code> als eigene Zeile: Der nächste Absatz beginnt auf einer neuen Folie.</li>
+              <li><code>## TW: Thema</code> beginnt einen Trigger-Abschnitt, <code>## ENDE TW</code> beendet ihn. Der Abschnitt bekommt eine eigene Titelfolie mit der Triggerwarnung und einen eigenen Hintergrund.</li>
+            </ul>
 
-        <label for="mdfile">Oder Markdown-Datei auswählen</label>
-        <p class="hint" id="mdfile-hint">Wenn du eine Datei auswählst, wird das Textfeld oben ignoriert.</p>
+            <h2 class="help-h">Formatierung</h2>
+            <p>Funktioniert im Fließtext, im Titel und im TW-Thema.</p>
+            <ul>
+              <li><code>**Text**</code> fett</li>
+              <li><code>*Text*</code> kursiv</li>
+              <li><code>***Text***</code> fett und kursiv</li>
+              <li><code>__Text__</code> unterstrichen</li>
+              <li><code>~~Text~~</code> durchgestrichen</li>
+              <li><code>{Farbe:Text}</code> farbig, zum Beispiel <code>{rot:tot}</code>. Darf mehrere Wörter umfassen und sich mit anderen Formatierungen kombinieren lassen, etwa <code>{rot:**tot**}</code>.</li>
+            </ul>
+            <p>Verfügbare Farben:</p>
+            <ul>
+              {% for t in templates %}
+              <li>{{ t.name }}: {{ t.colors | join(", ") if t.colors else "keine festgelegt" }}</li>
+              {% endfor %}
+            </ul>
+
+            <h2 class="help-h">Gut zu wissen</h2>
+            <ul>
+              <li>Instagram erlaubt höchstens 20 Folien pro Beitrag. Bei mehr gibt es eine Warnung, und die überzähligen Folien werden markiert.</li>
+              <li>Unbekannte Farbnamen werden ohne Farbe gedruckt und nach dem Erzeugen gemeldet.</li>
+              <li>Die Ergebnisseite zeigt, welcher Absatz auf welcher Folie gelandet ist.</li>
+            </ul>
+
+            <h2 class="help-h">Beispiel</h2>
+<pre># Wir werden nicht {blau:LAUT}, sonst sind wir {rot:tot}!
+
+Erster Absatz mit **fettem** Text.
+
+---
+
+Dieser Absatz beginnt auf einer neuen Folie.
+
+## TW: Gewalt
+
+Text im Trigger-Abschnitt.
+
+## ENDE TW
+
+Schluss.</pre>
+          </div>
+        </details>
+
+        <label class="field-label" for="markdown">Dein Text</label>
+        <p class="hint" id="markdown-hint">Erste Zeile <code># Titel</code>, danach der Beitragstext. Die Syntax steht in der Anleitung direkt darüber.</p>
+        <textarea class="panel" id="markdown" name="markdown" aria-describedby="markdown-hint"
+                  autocomplete="off" spellcheck="true">{{ prefill.markdown }}</textarea>
+
+        <label class="field-label" for="mdfile" id="mdfile-label">Oder Markdown-Datei hochladen</label>
+        <p class="hint" id="mdfile-hint">Eine ausgewählte Datei hat Vorrang vor dem Textfeld.</p>
         <input type="file" id="mdfile" name="mdfile" accept=".md,.txt,text/markdown,text/plain"
                aria-describedby="mdfile-hint">
 
-        <button type="submit">Folien erzeugen</button>
+        <div class="check">
+          <input type="checkbox" id="hyphenate" name="hyphenate" value="1"
+                 aria-describedby="hyphenate-hint" {% if prefill.hyphenate %}checked{% endif %}>
+          <label for="hyphenate">Silbentrennung im Fließtext</label>
+        </div>
+        <p class="hint" id="hyphenate-hint">Standardmäßig aus: Wörter wandern dann ungetrennt in die nächste Zeile. Titel werden nie getrennt.</p>
+
+        <div class="submit-row">
+          <button type="submit" class="btn btn-primary btn-wide">Folien erzeugen</button>
+        </div>
       </fieldset>
     </form>
   </main>
-</body>
-</html>
+
+  <!-- Announcements for the file loader (VoiceOver) -->
+  <div id="announce" class="visually-hidden" role="status" aria-live="polite"></div>
+
+  <script>
+  // Load a chosen Markdown file into the text field instead of uploading it
+  // separately: one source of truth, so edits made after loading are never
+  // silently ignored. Without JS the server-side upload path still works.
+  (() => {
+    const fileInput = document.getElementById('mdfile');
+    const textarea = document.getElementById('markdown');
+    const announceEl = document.getElementById('announce');
+    const MAX_BYTES = 2 * 1024 * 1024;  // same limit as the server
+
+    document.getElementById('mdfile-label').textContent = 'Markdown-Datei ins Textfeld laden';
+    document.getElementById('mdfile-hint').textContent =
+      'Der Inhalt wird ins Textfeld übernommen und kann dort noch bearbeitet werden. Erzeugt wird immer, was im Textfeld steht.';
+
+    function announce(msg) {
+      announceEl.textContent = '';
+      setTimeout(() => { announceEl.textContent = msg; }, 50);
+    }
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      // Always clear the picker afterwards: only the text field is submitted.
+      const reset = () => { fileInput.value = ''; };
+
+      if (file.size > MAX_BYTES) {
+        reset();
+        announce(`${file.name} ist zu groß (maximal 2 MB). Nichts geladen.`);
+        return;
+      }
+      let content;
+      try {
+        content = (await file.text()).replace(/\r\n?/g, '\n');
+      } catch (e) {
+        reset();
+        announce(`${file.name} konnte nicht gelesen werden.`);
+        return;
+      }
+      const current = textarea.value;
+      if (current.trim() && current.trim() !== content.trim()
+          && !confirm(`Vorhandenen Text durch den Inhalt von ${file.name} ersetzen?`)) {
+        reset();
+        announce('Laden abgebrochen, dein Text bleibt unverändert.');
+        return;
+      }
+      textarea.value = content;
+      reset();
+      const lines = content.replace(/\n+$/, '').split('\n').length;  // ignore trailing newline(s)
+      announce(`${file.name} geladen, ${lines} ${lines === 1 ? 'Zeile' : 'Zeilen'}. Der Text steht jetzt im Textfeld.`);
+    });
+  })();
+  </script>
+{% endblock %}

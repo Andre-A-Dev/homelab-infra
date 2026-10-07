@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Folien werden erzeugt – Karussell{% endblock %}
+{% block head %}
+  {% if status.state not in ("error", "cancelled") %}
+  <noscript><meta http-equiv="refresh" content="3"></noscript>
+  {% endif %}
+{% endblock %}
+{% block body %}
+  <main>
+    {% if status.state == "error" %}
+      <h1 tabindex="-1" autofocus>Erzeugung fehlgeschlagen</h1>
+      <div class="notice error" role="alert">{{ status.detail }}</div>
+      <div class="actions">
+        <a class="btn btn-primary" href="/?from={{ job_id }}">Zurück zum Text</a>
+      </div>
+    {% else %}
+      <h1 tabindex="-1" autofocus>Folien werden erzeugt</h1>
+      <p class="lead">Je nach Textlänge dauert das einen Moment. Du kannst jederzeit abbrechen, dein Text bleibt erhalten.</p>
+
+      <div class="progress-box">
+        <!-- Announced by screen readers: stage changes only, not every slide. -->
+        <p class="stage" id="stage" role="status" aria-live="polite">{{ status.label }}</p>
+        <progress id="bar" max="100" value="{{ status.percent }}" aria-describedby="detail">{{ status.percent }} %</progress>
+        <p class="detail" id="detail">{{ status.detail }}</p>
+      </div>
+
+      <form method="post" action="/job/{{ job_id }}/cancel" class="actions" id="cancel-form">
+        <button type="submit" class="btn btn-secondary">Abbrechen</button>
+      </form>
+    {% endif %}
+  </main>
+
+  {% if status.state not in ("error", "cancelled") %}
+  <script>
+    // Poll the job status and update the page in place (no reload, so
+    // VoiceOver doesn't restart reading). Without JS, the <noscript>
+    // meta refresh above takes over.
+    (() => {
+      const jobId = {{ job_id | tojson }};
+      const stageEl = document.getElementById('stage');
+      const detailEl = document.getElementById('detail');
+      const bar = document.getElementById('bar');
+      let lastLabel = stageEl.textContent;
+      // Once the user cancels, stop polling: a poll answer arriving mid-way
+      // must not reload the page and swallow the cancel navigation.
+      let leaving = false;
+      document.getElementById('cancel-form').addEventListener('submit', () => { leaving = true; });
+
+      async function poll() {
+        if (leaving) return;
+        try {
+          const resp = await fetch(`/job/${jobId}/status`, { cache: 'no-store' });
+          const s = await resp.json();
+          if (s.state === 'done') {
+            location.replace(`/result/${jobId}`);
+            return;
+          }
+          if (leaving) return;
+          if (s.state === 'cancelled') {
+            location.replace(`/?from=${jobId}`);  // form with the text restored
+            return;
+          }
+          if (s.state === 'error') {
+            location.reload();  // server renders the error page
+            return;
+          }
+          if (s.label !== lastLabel) {
+            stageEl.textContent = s.label;
+            lastLabel = s.label;
+          }
+          detailEl.textContent = s.detail;
+          bar.value = s.percent;
+          bar.textContent = `${s.percent} %`;
+        } catch (e) {
+          // Transient network hiccup: keep polling.
+        }
+        setTimeout(poll, 1000);
+      }
+      setTimeout(poll, 1000);
+    })();
+  </script>
+  {% endif %}
+{% endblock %}

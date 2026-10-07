@@ -1,62 +1,254 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fertige Folien – {{ title }}</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body {
-      font-family: -apple-system, system-ui, sans-serif;
-      max-width: 44rem; margin: 0 auto; padding: 1rem;
-      line-height: 1.5; font-size: 1.05rem;
-    }
-    img { width: 100%; height: auto; border-radius: 12px; }
-    figure { margin: 2rem 0; }
-    figcaption { font-size: 0.95rem; margin-top: 0.4rem; }
-    .actions a {
-      display: inline-block; font-size: 1.15rem; font-weight: 600;
-      padding: 0.8rem 1.6rem; border: 2px solid #444; border-radius: 10px;
-      text-decoration: none; margin: 0.5rem 0.5rem 0.5rem 0;
-    }
-    .warning {
-      border: 2px solid #b06000; border-radius: 8px;
-      padding: 0.8rem; margin: 1rem 0; font-weight: 600;
-    }
-    .alt-block {
-      border: 1px solid #888; border-radius: 8px; padding: 0.8rem;
-      font-size: 0.98rem;
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <h1 tabindex="-1" autofocus>Fertig: {{ slides|length }} Folien erzeugt</h1>
-    <p role="status" aria-live="polite">Beitrag „{{ title }}" mit {{ slides|length }} Folien ist bereit.</p>
+{% extends "base.html" %}
+{% block title %}{{ title }} – Karussell{% endblock %}
+{% block body %}
+  <!-- Announcements for copy/share/viewer (VoiceOver) -->
+  <div id="announce" class="visually-hidden" role="status" aria-live="polite"></div>
 
-    {% if warning %}
-    <div class="warning" role="alert">{{ warning }}</div>
+  <main class="wide">
+    <h1 tabindex="-1" autofocus>Fertig: {{ slides|length }} Folien erzeugt</h1>
+    <p class="lead" role="status">Beitrag „{{ title }}“ ist bereit.</p>
+
+    {% if warnings %}
+    <div class="notice warn" role="alert">
+      <p>Achtung:</p>
+      <ul>
+        {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+      </ul>
+    </div>
     {% endif %}
 
+    {% set share_count = [slides|length, limit]|min %}
+    <section class="share-box" aria-labelledby="share-h">
+      <h2 id="share-h">In Fotos sichern</h2>
+      <div class="js-only" id="share-section">
+        <p id="share-hint">Öffnet das Teilen-Menü mit allen Folien in der richtigen Reihenfolge. Dort „Bilder sichern“ wählen oder direkt an Instagram geben.
+        {% if slides|length > limit %}Geteilt werden nur die Folien 1 bis {{ limit }}, mehr erlaubt Instagram nicht.{% endif %}</p>
+        <button type="button" class="btn btn-primary btn-wide" id="share-btn" disabled aria-describedby="share-hint">Folien werden vorbereitet …</button>
+        <p id="share-fallback" hidden>Dein Browser kann die Folien nicht direkt teilen. Lade stattdessen das ZIP herunter oder sichere die Bilder unten einzeln über langes Drücken.</p>
+      </div>
+      <noscript><p>Ohne JavaScript geht das direkte Teilen nicht. Lade das ZIP herunter oder sichere die Bilder unten einzeln über langes Drücken.</p></noscript>
+      <div class="actions">
+        <a class="btn btn-secondary btn-small" href="/jobs/{{ job_id }}/karussell.zip" download>Alle Folien als ZIP</a>
+        <a class="btn btn-secondary btn-small" href="/jobs/{{ job_id }}/alt-texte.txt" download>Alt-Texte als Textdatei</a>
+        <a class="btn btn-secondary btn-small" href="/jobs/{{ job_id }}/beitrag.md" download>Text mit Formatierung</a>
+      </div>
+    </section>
+
+    {% if layout %}
+    <h2>Aufteilung</h2>
+    <p>So wurde dein Text verteilt. Für eine andere Aufteilung setze im Text eine Zeile <code>---</code> vor den Absatz, der auf einer neuen Folie beginnen soll.</p>
+    <ul class="layout">
+      {% for line in layout %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+
+    <h2>Tippfehler korrigieren</h2>
+    <p>„Text bearbeiten“ bringt dich zurück ins Formular, mit deinem Text samt allen Formatierungszeichen. Alternativ liegt er als <code>beitrag.md</code> im ZIP.</p>
     <div class="actions">
-      <a href="/jobs/{{ job_id }}/karussell.zip" download>Alle Folien als ZIP herunterladen</a>
-      <a href="/jobs/{{ job_id }}/alt-texte.txt" download>Alt-Texte als Textdatei</a>
-      <a href="/">Neuen Beitrag erstellen</a>
+      <a class="btn btn-secondary" href="/?from={{ job_id }}">Text bearbeiten</a>
+      <a class="btn btn-secondary" href="/">Neuen Beitrag erstellen</a>
     </div>
 
     <h2>Folien einzeln</h2>
-    <p>Jedes Bild kannst du über das Kontextmenü in deine Fotos sichern.
-    Der Text unter jedem Bild ist der passende Alternativtext zum Kopieren für Instagram.</p>
+    <p>Tippe auf eine Folie für die große Ansicht mit Vor- und Zurück-Blättern. Unter jeder Folie steht ihr Alternativtext für Instagram.</p>
 
-    {% for slide in slides %}
-    <figure>
-      <img src="/jobs/{{ job_id }}/{{ slide }}" alt="Folie {{ loop.index }}: {{ alt_texts[loop.index0] }}">
-      <figcaption>
-        <strong>Alt-Text Folie {{ loop.index }}:</strong>
-        <div class="alt-block">{{ alt_texts[loop.index0] }}</div>
-      </figcaption>
-    </figure>
-    {% endfor %}
+    <ol class="slide-grid">
+      {% for slide in slides %}
+      {% set over = loop.index > limit %}
+      <li class="slide-card{% if over %} over-limit{% endif %}">
+        <h3>Folie {{ loop.index }}</h3>
+        <a class="thumb" href="/jobs/{{ job_id }}/{{ slide }}" data-index="{{ loop.index0 }}"
+           aria-label="Folie {{ loop.index }} groß ansehen">
+          <img src="/jobs/{{ job_id }}/{{ slide }}" alt="" width="1080" height="1440" loading="lazy">
+        </a>
+        {% if over %}
+        <p class="limit-note">Über dem Instagram-Limit von {{ limit }} Folien, kann in diesem Beitrag nicht mehr hochgeladen werden.</p>
+        {% endif %}
+        <div class="alt-block" id="alt-{{ loop.index }}">{{ alt_texts[loop.index0] }}</div>
+        <div class="copy-row">
+          <button type="button" class="btn btn-secondary btn-small copy js-only" data-slide="{{ loop.index }}"><span><span class="visually-hidden">Alt-Text Folie {{ loop.index }} </span>Kopieren</span></button>
+          <span class="copied" id="copied-{{ loop.index }}" aria-hidden="true" hidden>✓ kopiert</span>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
   </main>
-</body>
-</html>
+
+  <dialog class="viewer" id="viewer" aria-labelledby="viewer-title">
+    <div class="viewer-top">
+      <h2 id="viewer-title">Folie</h2>
+      <button type="button" class="btn btn-secondary btn-small" id="viewer-close">Schließen</button>
+    </div>
+    <div class="viewer-stage" id="viewer-stage">
+      <img id="viewer-img" alt="">
+    </div>
+    <p class="limit-note" id="viewer-limit" hidden>Über dem Instagram-Limit von {{ limit }} Folien.</p>
+    <div class="viewer-nav">
+      <button type="button" class="btn btn-secondary btn-small" id="viewer-prev">Vorherige Folie</button>
+      <button type="button" class="btn btn-secondary btn-small" id="viewer-next">Nächste Folie</button>
+    </div>
+    <p class="viewer-alt" id="viewer-alt"></p>
+    <button type="button" class="btn btn-secondary btn-small" id="viewer-copy">Alt-Text kopieren</button>
+  </dialog>
+
+  <script>
+  (() => {
+    const announceEl = document.getElementById('announce');
+    function announce(msg) {
+      // clear first so identical consecutive messages are re-announced
+      announceEl.textContent = '';
+      setTimeout(() => { announceEl.textContent = msg; }, 50);
+    }
+
+    // ── Copy alt text ──────────────────────────────────────────────────
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (e) {
+        // Fallback for browsers without the async clipboard API
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        let ok = false;
+        try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+        ta.remove();
+        return ok;
+      }
+    }
+    function altText(n) {
+      return document.getElementById(`alt-${n}`).textContent.trim();
+    }
+    async function copySlide(n) {
+      const ok = await copyText(altText(n));
+      if (ok) {
+        document.querySelectorAll('.copied').forEach(m => { m.hidden = true; });
+        document.getElementById(`copied-${n}`).hidden = false;
+        announce(`Alt-Text von Folie ${n} kopiert.`);
+      } else {
+        announce(`Kopieren hat nicht geklappt. Bitte den Text von Folie ${n} von Hand markieren.`);
+      }
+    }
+    document.querySelectorAll('button.copy').forEach(btn => {
+      btn.addEventListener('click', () => copySlide(Number(btn.dataset.slide)));
+    });
+
+    // ── Share all slides (Web Share API with files) ─────────────────────
+    const shareBtn = document.getElementById('share-btn');
+    const fallback = document.getElementById('share-fallback');
+    const urls = [{{ slides[:share_count] | map('tojson') | join(',') | safe }}].map(s => `/jobs/{{ job_id }}/${s}`);
+    const count = urls.length;
+
+    function unsupported() {
+      shareBtn.hidden = true;
+      fallback.hidden = false;
+    }
+
+    let files = null;
+    async function prepare() {
+      if (!navigator.share || !navigator.canShare) return unsupported();
+      try {
+        // Fetch up front: iOS only allows share() directly inside the tap,
+        // so the files must already be in memory when the button is pressed.
+        files = await Promise.all(urls.map(async (u) => {
+          const resp = await fetch(u);
+          const blob = await resp.blob();
+          return new File([blob], u.split('/').pop(), { type: 'image/png' });
+        }));
+      } catch (e) {
+        return unsupported();
+      }
+      if (!navigator.canShare({ files })) return unsupported();
+      shareBtn.disabled = false;
+      shareBtn.textContent = count > 1 ? `Alle ${count} Folien teilen oder sichern` : 'Folie teilen oder sichern';
+    }
+
+    shareBtn.addEventListener('click', async () => {
+      if (!files) return;
+      try {
+        await navigator.share({ files });
+        announce('Teilen abgeschlossen.');
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;  // user closed the share sheet
+        announce('Teilen hat nicht geklappt. Bitte das ZIP herunterladen.');
+      }
+    });
+
+    prepare();
+
+    // ── Viewer: large view with prev/next, arrow keys and swipe ─────────
+    const viewer = document.getElementById('viewer');
+    if (typeof viewer.showModal !== 'function') return;  // old browser: thumbnails stay plain links
+
+    const thumbs = [...document.querySelectorAll('a.thumb')];
+    const total = thumbs.length;
+    const limit = {{ limit }};
+    const img = document.getElementById('viewer-img');
+    const title = document.getElementById('viewer-title');
+    const altEl = document.getElementById('viewer-alt');
+    const limitEl = document.getElementById('viewer-limit');
+    const prevBtn = document.getElementById('viewer-prev');
+    const nextBtn = document.getElementById('viewer-next');
+    let current = 0;
+    let opener = null;
+
+    function show(i, speak) {
+      current = Math.max(0, Math.min(total - 1, i));
+      const n = current + 1;
+      img.src = thumbs[current].getAttribute('href');
+      title.textContent = `Folie ${n} von ${total}`;
+      altEl.textContent = altText(n);
+      limitEl.hidden = n <= limit;
+      prevBtn.disabled = current === 0;
+      nextBtn.disabled = current === total - 1;
+      if (speak) announce(`Folie ${n} von ${total}.`);
+    }
+    function step(delta) {
+      const focused = document.activeElement;
+      show(current + delta, true);
+      // A button that just became disabled drops focus; hand it to the
+      // opposite button so keyboard/VoiceOver focus stays in the dialog.
+      if (focused === prevBtn && prevBtn.disabled) nextBtn.focus();
+      if (focused === nextBtn && nextBtn.disabled) prevBtn.focus();
+    }
+
+    thumbs.forEach((a, i) => {
+      a.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        opener = a;
+        show(i, false);
+        viewer.showModal();
+      });
+    });
+    prevBtn.addEventListener('click', () => step(-1));
+    nextBtn.addEventListener('click', () => step(1));
+    document.getElementById('viewer-close').addEventListener('click', () => viewer.close());
+    document.getElementById('viewer-copy').addEventListener('click', () => copySlide(current + 1));
+    viewer.addEventListener('keydown', (ev) => {
+      if (ev.key === 'ArrowLeft') { ev.preventDefault(); step(-1); }
+      if (ev.key === 'ArrowRight') { ev.preventDefault(); step(1); }
+    });
+    // A click outside the dialog box (on the backdrop) closes it
+    viewer.addEventListener('click', (ev) => {
+      if (ev.target !== viewer) return;
+      const r = viewer.getBoundingClientRect();
+      const outside = ev.clientX < r.left || ev.clientX > r.right || ev.clientY < r.top || ev.clientY > r.bottom;
+      if (outside) viewer.close();
+    });
+    // Return focus to the thumbnail that opened the viewer
+    viewer.addEventListener('close', () => { if (opener) opener.focus(); });
+
+    // Horizontal swipe on the image (VoiceOver users navigate with the buttons)
+    let startX = null;
+    const stage = document.getElementById('viewer-stage');
+    stage.addEventListener('pointerdown', (ev) => { startX = ev.clientX; });
+    stage.addEventListener('pointerup', (ev) => {
+      if (startX === null) return;
+      const dx = ev.clientX - startX;
+      startX = null;
+      if (Math.abs(dx) > 50) step(dx < 0 ? 1 : -1);
+    });
+  })();
+  </script>
+{% endblock %}
