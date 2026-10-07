@@ -67,10 +67,11 @@ STATUS_OPTIONS = [
     "Feedback ausstehend",
     "Absage erhalten",
     "Nicht relevant",
+    "Archiviert",        # set automatically by job-monitor.py (auto_archive)
 ]
 
 # Statuses that hide jobs from the default view
-HIDDEN_STATUSES = {"Absage erhalten", "Nicht relevant"}
+HIDDEN_STATUSES = {"Absage erhalten", "Nicht relevant", "Archiviert"}
 
 # Maps URL-friendly sort keys to actual column names (whitelist to avoid
 # building ORDER BY from unvalidated input).
@@ -91,6 +92,255 @@ SORTABLE_COLUMNS = {
 }
 
 app = Flask(__name__, template_folder="templates")
+
+
+# --------------------------------------------------------------------------- #
+# Column filters
+# --------------------------------------------------------------------------- #
+
+import re as _re
+from urllib.parse import urlencode as _urlencode
+
+_DATE_RE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# All query parameters that belong to the filter row (used for "reset" and
+# for counting active filters).
+FILTER_KEYS = (
+    "f_q", "f_found_from", "f_found_to", "f_pub_from", "f_pub_to",
+    "f_title", "f_company", "f_location", "f_dist",
+    "f_salary", "f_ho", "f_tag", "f_status", "f_ai",
+)
+
+
+def _text_filter(column: str, raw: str, where: list, params: list) -> None:
+    """Smart text filter:
+      - comma separates alternatives (OR):  'devops, build'
+      - leading '-' or '!' excludes a term: '-kubernetes'
+    Matching is case-insensitive incl. umlauts (via PYLOWER)."""
+    include, exclude = [], []
+    for token in (t.strip() for t in raw.split(",")):
+        if not token:
+            continue
+        if token[0] in "-!" and len(token) > 1:
+            exclude.append(token[1:].strip().lower())
+        else:
+            include.append(token.lower())
+    if include:
+        where.append("(" + " OR ".join(f"PYLOWER({column}) LIKE ?" for _ in include) + ")")
+        params.extend(f"%{t}%" for t in include)
+    for t in exclude:
+        where.append(f"(PYLOWER({column}) NOT LIKE ? OR {column} IS NULL)")
+        params.append(f"%{t}%")
+
+
+def _range_filter(column: str, raw: str, where: list, params: list) -> None:
+    """Numeric range filter. Accepts '50' (max), '20-80', '>100', '<30'."""
+    raw = raw.replace(" ", "")
+    m = _re.fullmatch(r"(\d+)-(\d+)", raw)
+    if m:
+        where.append(f"{column} BETWEEN ? AND ?")
+        params.extend([int(m.group(1)), int(m.group(2))])
+    elif _re.fullmatch(r">\d+", raw):
+        where.append(f"{column} > ?")
+        params.append(int(raw[1:]))
+    elif _re.fullmatch(r"<?\d+", raw):
+        where.append(f"{column} <= ?")
+        params.append(int(raw.lstrip("<")))
+
+
+def build_filters(args) -> tuple[list[str], list, str, int]:
+    """Translate request args into SQL WHERE parts.
+    Returns (where_parts, params, effective_status_filter, active_filter_count)."""
+    where: list[str] = []
+    params: list = []
+
+    # Status: f_status wins; legacy params (all / status_filter from the
+    # metric bar) are mapped onto it for backwards compatibility.
+    f_status = args.get("f_status", "")
+    if not f_status:
+        if args.get("all") == "1":
+            f_status = "__all__"
+        elif args.get("status_filter") in STATUS_OPTIONS:
+            f_status = args.get("status_filter")
+    wanted = [p for p in f_status.split(",") if p in STATUS_OPTIONS]
+    if wanted:
+        where.append(f"status IN ({', '.join('?' * len(wanted))})")
+        params.extend(wanted)
+    elif f_status != "__all__":
+        where.append(f"status NOT IN ({', '.join('?' * len(HIDDEN_STATUSES))})")
+        params.extend(sorted(HIDDEN_STATUSES))
+
+    # Date ranges (inclusive, compared on the YYYY-MM-DD prefix)
+    for key, column, op in (
+        ("f_found_from", "substr(first_seen, 1, 10)", ">="),
+        ("f_found_to",   "substr(first_seen, 1, 10)", "<="),
+        ("f_pub_from",   "published_at",              ">="),
+        ("f_pub_to",     "published_at",              "<="),
+    ):
+        value = args.get(key, "")
+        if _DATE_RE.match(value):
+            where.append(f"{column} {op} ?")
+            params.append(value)
+
+    # Global search box: title, company and location at once
+    if args.get("f_q", "").strip():
+        _text_filter("(COALESCE(titel,'') || ' ' || COALESCE(arbeitgeber,'') || ' ' || COALESCE(ort,''))",
+                     args["f_q"], where, params)
+
+    # Text columns
+    for key, column in (("f_title", "titel"), ("f_company", "arbeitgeber"), ("f_location", "ort")):
+        value = args.get(key, "").strip()
+        if value:
+            _text_filter(column, value, where, params)
+
+    # Distance range
+    if args.get("f_dist", "").strip():
+        _range_filter("distance_home_km", args["f_dist"], where, params)
+
+    # Presence filters
+    presence = {
+        "f_salary": "(salary IS NOT NULL AND salary != '')",
+        "f_ho":     "(home_office IS NOT NULL AND home_office != '')",
+    }
+    for key, expr in presence.items():
+        if args.get(key) == "with":
+            where.append(expr)
+        elif args.get(key) == "without":
+            where.append(f"NOT {expr}")
+
+    # Exact tag
+    if args.get("f_tag"):
+        where.append("tag = ?")
+        params.append(args["f_tag"])
+
+    # AI score
+    f_ai = args.get("f_ai", "")
+    if f_ai == "none":
+        where.append("ai_score IS NULL")
+    elif f_ai.isdigit():
+        where.append("ai_score >= ?")
+        params.append(int(f_ai))
+
+    active = sum(1 for k in FILTER_KEYS if args.get(k))
+    return where, params, f_status, active
+
+
+@app.context_processor
+def _inject_qs():
+    """qs(**overrides) builds a query string from the current request args.
+    Pass None/'' to drop a key. Keeps sort + filters combinable in links."""
+    def qs(**overrides):
+        args = request.args.to_dict()
+        for key, value in overrides.items():
+            if value is None or value == "":
+                args.pop(key, None)
+            else:
+                args[key] = value
+        return "?" + _urlencode(args)
+    return {"qs": qs}
+
+
+# --------------------------------------------------------------------------- #
+# Views (tabs) and filter chips
+# --------------------------------------------------------------------------- #
+
+def _today_iso() -> str:
+    import datetime as _dt, zoneinfo
+    try:
+        tz = zoneinfo.ZoneInfo(BOARD_TIMEZONE)
+    except Exception:
+        tz = _dt.timezone.utc
+    return _dt.datetime.now(tz).date().isoformat()
+
+
+def builtin_views() -> list[dict]:
+    today = _today_iso()
+    return [
+        {"id": "all",      "label": "Alle aktiven",         "params": {}},
+        {"id": "today",    "label": "Neu heute",            "params": {"f_found_from": today, "f_found_to": today}},
+        {"id": "commute",  "label": "Pendelbar mit Gehalt", "params": {"f_dist": "75", "f_salary": "with"}},
+        {"id": "interest", "label": "Interessant",          "params": {"f_status": "Interessant"}},
+        {"id": "applied",  "label": "Beworben",             "params": {"f_status": "Beworben,Feedback ausstehend"}},
+        {"id": "top",      "label": "AI ≥ 7",               "params": {"f_ai": "7"}},
+        {"id": "archived", "label": "Archiviert",           "params": {"f_status": "Archiviert"}},
+    ]
+
+
+def _ensure_views_table(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS saved_views (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT NOT NULL,
+            query      TEXT NOT NULL,
+            created_at TEXT
+        )
+        """
+    )
+    conn.commit()
+
+
+def current_filter_params(args) -> dict:
+    """Active filter params as a plain dict (legacy params mapped onto f_status)."""
+    cur = {k: args.get(k) for k in FILTER_KEYS if args.get(k)}
+    if "f_status" not in cur:
+        if args.get("all") == "1":
+            cur["f_status"] = "__all__"
+        elif args.get("status_filter") in STATUS_OPTIONS:
+            cur["f_status"] = args.get("status_filter")
+    return cur
+
+
+def _fmt_date(iso: str) -> str:
+    return f"{iso[8:10]}.{iso[5:7]}." if iso and len(iso) == 10 else iso
+
+
+def build_chips(args) -> list[dict]:
+    """One chip per active filter: field key, label, value text, removal keys."""
+    cur = current_filter_params(args)
+    chips = []
+
+    def add(field, label, value, keys):
+        chips.append({"field": field, "label": label, "value": value, "remove": list(keys)})
+
+    for field, label, k_from, k_to in (
+        ("found", "Gefunden", "f_found_from", "f_found_to"),
+        ("pub", "Veröffentlicht", "f_pub_from", "f_pub_to"),
+    ):
+        a, b = cur.get(k_from), cur.get(k_to)
+        if a or b:
+            if a and b and a == b:
+                value = _fmt_date(a)
+            elif a and b:
+                value = f"{_fmt_date(a)}–{_fmt_date(b)}"
+            elif a:
+                value = f"ab {_fmt_date(a)}"
+            else:
+                value = f"bis {_fmt_date(b)}"
+            add(field, label, value, (k_from, k_to))
+
+    for key, field, label in (("f_title", "title", "Titel"), ("f_company", "company", "Arbeitgeber"),
+                              ("f_location", "location", "Ort")):
+        if cur.get(key):
+            add(field, label, cur[key], (key,))
+
+    if cur.get("f_dist"):
+        v = cur["f_dist"]
+        value = f"{v} km" if not v.isdigit() else f"bis {v} km"
+        add("dist", "Entfernung", value, ("f_dist",))
+    for key, field, label in (("f_salary", "salary", "Gehalt"), ("f_ho", "ho", "Home-Office")):
+        if cur.get(key):
+            add(field, label, "mit Angabe" if cur[key] == "with" else "ohne", (key,))
+    if cur.get("f_tag"):
+        add("tag", "Tag", cur["f_tag"], ("f_tag",))
+    if cur.get("f_status"):
+        v = cur["f_status"]
+        value = "alle" if v == "__all__" else v.replace(",", ", ")
+        add("status", "Status", value, ("f_status", "all", "status_filter"))
+    if cur.get("f_ai"):
+        v = cur["f_ai"]
+        add("ai", "AI", "unbewertet" if v == "none" else f"≥ {v}", ("f_ai",))
+    return chips
 
 # In-memory run registry: run_id -> {"lines": [...], "done": bool, "rc": int|None}
 _runs: dict[str, dict] = {}
@@ -197,7 +447,7 @@ def get_metrics(conn: sqlite3.Connection) -> dict:
             SUM(CASE WHEN status = 'Beworben'
                       AND status_changed_at < ?             THEN 1 ELSE 0 END) AS reminder_followup
         FROM seen_jobs
-        WHERE status NOT IN ('Absage erhalten', 'Nicht relevant')
+        WHERE status NOT IN ('Absage erhalten', 'Nicht relevant', 'Archiviert')
         """,
         (today, reminder_int_cutoff, reminder_fu_cutoff),
     ).fetchone()
@@ -277,18 +527,12 @@ def board():
     column       = SORTABLE_COLUMNS.get(sort_key, "first_seen")
     direction_sql = "ASC" if direction == "asc" else "DESC"
 
-    if show_all:
-        where_clause = ""
-        params = []
-    elif status_filter and status_filter in STATUS_OPTIONS:
-        where_clause = "WHERE status = ?"
-        params = [status_filter]
-    else:
-        hidden = ", ".join(f"'{s}'" for s in HIDDEN_STATUSES)
-        where_clause = f"WHERE status NOT IN ({hidden})"
-        params = []
+    where_parts, params, f_status, active_filters = build_filters(request.args)
+    where_clause = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
     conn = get_connection()
+    # Case-insensitive matching that also handles umlauts (SQLite LOWER is ASCII-only)
+    conn.create_function("PYLOWER", 1, lambda s: s.lower() if isinstance(s, str) else s)
     rows = conn.execute(
         f"SELECT * FROM seen_jobs {where_clause} "
         f"ORDER BY {column} {direction_sql} NULLS LAST",
@@ -297,6 +541,63 @@ def board():
     latest_date = conn.execute(
         "SELECT MAX(substr(first_seen, 1, 10)) FROM seen_jobs"
     ).fetchone()[0]
+
+    # Facet values for filter dropdowns / autocomplete and date picker bounds
+    def _distinct(col: str, limit: int = 200) -> list[str]:
+        return [r[0] for r in conn.execute(
+            f"SELECT {col}, COUNT(*) c FROM seen_jobs WHERE {col} IS NOT NULL AND {col} != '' "
+            f"GROUP BY {col} ORDER BY c DESC LIMIT ?", (limit,)
+        )]
+    facets = {
+        "tags":      _distinct("tag"),
+        "companies": _distinct("arbeitgeber"),
+        "locations": _distinct("ort"),
+    }
+    bounds = conn.execute(
+        "SELECT MIN(substr(first_seen,1,10)), MAX(substr(first_seen,1,10)), "
+        "MIN(published_at), MAX(published_at) FROM seen_jobs"
+    ).fetchone()
+    date_bounds = {
+        "found_min": bounds[0], "found_max": bounds[1],
+        "pub_min":   bounds[2], "pub_max":   bounds[3],
+    }
+
+    # ---- Views (tabs): built-in + user-saved, each with a live count ----
+    from urllib.parse import parse_qsl as _parse_qsl
+    _ensure_views_table(conn)
+    current = current_filter_params(request.args)
+
+    def _count(view_params: dict) -> int:
+        w, p, _, _ = build_filters(view_params)
+        clause = ("WHERE " + " AND ".join(w)) if w else ""
+        return conn.execute(f"SELECT COUNT(*) FROM seen_jobs {clause}", p).fetchone()[0]
+
+    views = []
+    for v in builtin_views():
+        views.append({**v, "custom": False})
+    for vid, name, query in conn.execute("SELECT id, name, query FROM saved_views ORDER BY id"):
+        views.append({"id": f"v{vid}", "db_id": vid, "label": name,
+                      "params": dict(_parse_qsl(query)), "custom": True})
+    for v in views:
+        v["count"] = _count(v["params"])
+        v["active"] = v["params"] == current
+        v["href"] = "?" + _urlencode({"sort": sort_key, "dir": direction, **v["params"]})
+    chips = build_chips(request.args)
+    for c in chips:
+        keep = {k: v for k, v in request.args.items() if k not in c["remove"]}
+        c["href"] = "?" + _urlencode(keep)
+
+    # Everything the filter popover needs, handed to JS as JSON
+    filter_state = {
+        "params": current,
+        "today": _today_iso(),
+        "bounds": date_bounds,
+        "tags": facets["tags"],
+        "companies": facets["companies"],
+        "locations": facets["locations"],
+        "statuses": STATUS_OPTIONS,
+        "hidden": sorted(HIDDEN_STATUSES),
+    }
     metrics = get_metrics(conn)
     last_run = get_last_run()
     conn.close()
@@ -354,7 +655,49 @@ def board():
         last_run=last_run,
         reminder_interessant_days=REMINDER_INTERESSANT_DAYS,
         reminder_followup_days=REMINDER_FOLLOWUP_DAYS,
+        f=request.args,
+        f_status=f_status,
+        active_filters=active_filters,
+        facets=facets,
+        date_bounds=date_bounds,
+        views=views,
+        chips=chips,
+        filter_state=filter_state,
+        sort_label=dict(
+            date="Gefunden", published="Veröffentlicht", title="Titel", company="Arbeitgeber",
+            location="Ort", distance="Entfernung", salary="Gehalt", tag="Tag", status="Status",
+        ).get(sort_key, "Gefunden"),
     )
+
+
+@app.route("/views", methods=["POST"])
+def save_view():
+    """Save the current filter set as a named view (tab)."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()[:40]
+    query = data.get("query") or ""
+    from urllib.parse import parse_qsl as _parse_qsl, urlencode as _enc
+    # Keep only known filter keys
+    clean = {k: v for k, v in _parse_qsl(query.lstrip("?")) if k in FILTER_KEYS and v}
+    if not name or not clean:
+        return jsonify({"error": "name and at least one filter required"}), 400
+    conn = get_connection()
+    _ensure_views_table(conn)
+    conn.execute("INSERT INTO saved_views (name, query, created_at) VALUES (?, ?, ?)",
+                 (name, _enc(clean), _today_iso()))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
+
+
+@app.route("/views/<int:view_id>/delete", methods=["POST"])
+def delete_view(view_id):
+    conn = get_connection()
+    _ensure_views_table(conn)
+    conn.execute("DELETE FROM saved_views WHERE id = ?", (view_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"ok": True})
 
 
 @app.route("/status/<refnr>", methods=["POST"])
@@ -389,6 +732,10 @@ def update_status(refnr):
     conn.commit()
     conn.close()
 
+    # Return to the exact view (sort + filters) the change was made from
+    next_url = request.form.get("next", "")
+    if next_url.startswith("/") and not next_url.startswith("//"):
+        return redirect(next_url)
     return redirect(url_for(
         "board",
         sort=request.form.get("sort", "date"),
@@ -600,15 +947,9 @@ def _load_rating_profile() -> str:
         )
 
 
-def _build_job_text(row: sqlite3.Row, detail: dict | None,
-                    manual_text: str | None = None) -> str:
+def _build_job_text(row: sqlite3.Row, detail: dict | None) -> str:
     """Assemble a compact text representation of the job for the prompt.
-
-    Priority order for the job description:
-      1. manual_text  – pasted by the user in the board UI (most reliable)
-      2. BA API detail endpoint – rarely works (403 for most refnrs)
-      3. Metadata-only fallback – title, company, location, salary, etc.
-    """
+    Uses whatever detail the BA API returns; falls back to the board fields."""
     parts = [
         f"Title: {row['titel']}",
         f"Company: {row['arbeitgeber']}",
@@ -623,28 +964,14 @@ def _build_job_text(row: sqlite3.Row, detail: dict | None,
     if row["tag"]:
         parts.append(f"Search profile tag: {row['tag']}")
 
-    # 1. User-pasted description takes priority – skip the API entirely
-    if manual_text and manual_text.strip():
-        parts.append(f"\n--- Job description ---\n{manual_text.strip()[:4000]}")
-        return "\n".join(parts)
-
-    # 2. Try the BA API detail endpoint (usually 403 – fails silently)
-    has_description = False
+    # Append free-text fields from the detail endpoint when available
     if detail:
         for key in ("stellenbeschreibung", "aufgaben", "qualifikationen",
                     "wir_bieten", "beschreibung"):
             value = detail.get(key, "")
             if value:
                 parts.append(f"\n--- Job description ---\n{value[:3000]}")
-                has_description = True
-                break
-
-    # 3. No description available – tell the model so it can flag the rating
-    if not has_description:
-        parts.append(
-            "\n--- Hinweis ---\n"
-            "Das Rating basiert ausschließlich auf Titel und Metadaten."
-        )
+                break  # one description field is enough
 
     return "\n".join(parts)
 
@@ -652,12 +979,13 @@ def _build_job_text(row: sqlite3.Row, detail: dict | None,
 def _call_claude(system_prompt: str, user_text: str) -> tuple[int | None, str | None]:
     """POST to the Anthropic Messages API. Returns (score, summary) on success,
     (None, error_message) on failure."""
+    import json as _json
     import urllib.request as _urlreq
     import urllib.error as _urlerr
 
     payload = _json.dumps({
         "model": "claude-sonnet-4-6",
-        "max_tokens": 512,
+        "max_tokens": 256,
         "system": system_prompt,
         "messages": [{"role": "user", "content": user_text}],
     }).encode()
@@ -676,27 +1004,12 @@ def _call_claude(system_prompt: str, user_text: str) -> tuple[int | None, str | 
         with _urlreq.urlopen(req, timeout=30) as resp:
             data = _json.loads(resp.read())
         text = data["content"][0]["text"].strip()
-        # Strip accidental markdown fences
+        # Strip any accidental markdown fences before parsing
         text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        # Primary parse
-        try:
-            parsed  = _json.loads(text)
-            score   = int(parsed["score"])
-            summary = str(parsed["summary"])
-            return score, summary
-        except (_json.JSONDecodeError, KeyError, ValueError):
-            # Fallback: regex extraction in case Claude emitted unescaped
-            # newlines or quotes inside the JSON string values
-            import re as _re
-            score_m   = _re.search(r'"score"\s*:\s*(\d+)', text)
-            summary_m = _re.search(
-                r'"summary"\s*:\s*"(.*?)(?<!\\)"(?:\s*[,}])', text, _re.DOTALL
-            )
-            if score_m and summary_m:
-                score   = int(score_m.group(1))
-                summary = summary_m.group(1).replace('\\"', '"').replace("\\n", " ").strip()
-                return score, summary
-            return None, f"Could not parse response: {text[:200]}"
+        parsed = _json.loads(text)
+        score   = int(parsed["score"])
+        summary = str(parsed["summary"])
+        return score, summary
     except _urlerr.HTTPError as exc:
         body = exc.read().decode(errors="replace")[:200]
         return None, f"Anthropic API error {exc.code}: {body}"
@@ -704,12 +1017,8 @@ def _call_claude(system_prompt: str, user_text: str) -> tuple[int | None, str | 
         return None, f"Rating failed: {exc}"
 
 
-def _run_rating(refnr: str, manual_text: str | None = None) -> None:
-    """Background thread: fetch job detail, call Claude, persist result to DB.
-
-    If manual_text is provided it is used as the job description directly,
-    skipping the BA API detail fetch (which returns 403 for virtually all jobs).
-    """
+def _run_rating(refnr: str) -> None:
+    """Background thread: fetch job detail, call Claude, persist result to DB."""
 
     def _set(status, score=None, summary=None):
         with _ratings_lock:
@@ -717,81 +1026,54 @@ def _run_rating(refnr: str, manual_text: str | None = None) -> None:
 
     _set("pending")
 
-    try:
-        conn = get_connection()
-        row = conn.execute(
-            "SELECT * FROM seen_jobs WHERE refnr = ?", (refnr,)
-        ).fetchone()
-        conn.close()
+    # Pull board row for base fields
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM seen_jobs WHERE refnr = ?", (refnr,)
+    ).fetchone()
+    conn.close()
 
-        if row is None:
-            _set("error", summary="Job not found in database.")
-            return
+    if row is None:
+        _set("error", summary="Job not found in database.")
+        return
 
-        import logging as _log
-        _log.getLogger("jobiris").info(
-            "Rating %s: manual_text=%d chars",
-            refnr, len(manual_text) if manual_text else 0,
-        )
+    # Optionally enrich with full description from BA API
+    detail = _fetch_job_detail(refnr)
 
-        # Skip the BA API when the user already provided the description
-        detail    = None if manual_text else _fetch_job_detail(refnr)
-        job_text  = _build_job_text(row, detail, manual_text=manual_text)
-        score, summary = _call_claude(_load_rating_profile(), job_text)
+    job_text     = _build_job_text(row, detail)
+    system_prompt = _load_rating_profile()
+    score, summary = _call_claude(system_prompt, job_text)
 
-        if score is None:
-            _set("error", summary=summary)
-            return
+    if score is None:
+        _set("error", summary=summary)
+        return
 
-        conn = get_connection()
-        conn.execute(
-            "UPDATE seen_jobs SET ai_score = ?, ai_summary = ? WHERE refnr = ?",
-            (score, summary, refnr),
-        )
-        conn.commit()
-        conn.close()
+    # Persist to DB
+    conn = get_connection()
+    conn.execute(
+        "UPDATE seen_jobs SET ai_score = ?, ai_summary = ? WHERE refnr = ?",
+        (score, summary, refnr),
+    )
+    conn.commit()
+    conn.close()
 
-        _set("done", score=score, summary=summary)
-
-    except Exception as exc:
-        import traceback as _tb
-        import logging as _log
-        _log.getLogger("jobiris").error(
-            "Rating thread crashed: %s\n%s", exc, _tb.format_exc()
-        )
-        _set("error", summary=f"Internal error: {exc}")
+    _set("done", score=score, summary=summary)
 
 
 @app.route("/rate/<refnr>", methods=["POST"])
 def rate_job(refnr):
     """Trigger an AI rating for a single job. Starts a background thread and
-    returns immediately so the board stays responsive.
-
-    Accepts an optional JSON body: {"description": "<pasted job text>"}
-    Use force=True so Flask parses the body regardless of the Content-Type
-    header (Caddy / HTTP2 may alter it in transit).
-    """
+    returns immediately so the board stays responsive."""
     if not ANTHROPIC_API_KEY:
         return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 503
-
-    manual_text = None
-    try:
-        body = request.get_json(force=True, silent=True) or {}
-        manual_text = body.get("description", "").strip() or None
-    except Exception:
-        pass
-    if manual_text is None and request.form.get("description"):
-        manual_text = request.form.get("description").strip() or None
 
     with _ratings_lock:
         entry = _ratings.get(refnr)
         if entry and entry["status"] == "pending":
+            # Already running – don't start a second thread
             return jsonify({"status": "pending"}), 202
 
-    thread = threading.Thread(
-        target=_run_rating, args=(refnr,), kwargs={"manual_text": manual_text},
-        daemon=True,
-    )
+    thread = threading.Thread(target=_run_rating, args=(refnr,), daemon=True)
     thread.start()
     return jsonify({"status": "pending"}), 202
 
