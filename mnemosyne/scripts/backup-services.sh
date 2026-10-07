@@ -5,8 +5,17 @@ BACKUP_DIR="/mnt/backup"
 
 DATE=$(date +%Y-%m-%d)
 RETENTION_DAYS=7                  # Reduced from 14 — 7 days is enough for a homelab
-MIN_FREE_GB=40                    # Abort if less than this many GB are free before starting
-MAX_USAGE_PERCENT=85              # Abort if disk usage exceeds this % after cleanup
+# Abort before starting if less than this many GB are free. One nightly run
+# writes roughly 73 GB (Nextcloud ~29 + Immich ~44), so the old value of 40 was
+# smaller than a single run: the preflight would pass and the backup would then
+# run out of space halfway through, leaving a truncated archive behind.
+# 150 GB is two full runs of headroom on the 3.6 TB HDD.
+MIN_FREE_GB=150
+# Percentage warning after cleanup. Kept as a coarse second signal only — on a
+# 3.6 TB drive 85% still leaves ~540 GB, so this fires long after
+# MIN_FREE_GB would have. The absolute check above is the one that matters.
+# (The comment used to say "Abort"; it only ever warned.)
+MAX_USAGE_PERCENT=85
 LOG="/var/log/backup-services.log"
 
 # Offsite backup is handled by a separate, decoupled restic service
@@ -22,6 +31,64 @@ LOG="/var/log/backup-services.log"
 # Skipped steps write a .SKIPPED marker file containing the date of the last
 # real archive so verify-backup.sh can look it up.
 TIMESTAMP_DIR="/var/lib/backup-timestamps"
+
+# A skip chain must never outlive the retention window. If the last real archive
+# for a service is older than this, change detection is overridden and a full
+# backup is taken — otherwise the cleanup step eventually deletes the archive the
+# .SKIPPED markers point at, leaving a chain of markers referencing nothing.
+# That happened to calibre-library in August 2026: five consecutive markers, zero
+# archives. Two days of headroom below RETENTION_DAYS.
+MAX_SKIP_DAYS=$(( RETENTION_DAYS - 2 ))
+
+# Minimum number of entries a freshly written archive must contain. An archive of
+# an empty directory is a valid, readable, ~85-byte tar.gz with exactly one entry
+# ("./") — indistinguishable from success unless the content is asserted.
+MIN_ARCHIVE_ENTRIES=2
+
+# ── Backup source paths ────────────────────────────────────────────────────────
+# Single source of truth for every path this script archives. Declared here so
+# check_mount_drift() can compare them against what the running containers
+# actually use. Changing a stack's mount without changing this map is the failure
+# this section exists to make loud.
+declare -A SOURCE_PATHS=(
+  [vaultwarden]="/mnt/vault/vaultwarden/data"
+  [caddy]="/mnt/vault/caddy"
+  [calibre]="/mnt/codex/calibre-library"
+  [calibre-web]="/mnt/codex/calibre-web-config"
+  [kosync]="/mnt/codex/kosync/data"
+  [syncthing]="/mnt/codex/syncthing/obsidian"
+  [aegis]="/mnt/codex/syncthing/aegis"
+  [gitea]="/mnt/codex/gitea/data"
+  [ghost]="/mnt/codex/ghost/content"
+  [nextcloud]="/mnt/codex/nextcloud/data"
+  [immich]="/mnt/codex/immich/upload"
+  [grafana]="/mnt/codex/grafana"
+  [jobiris]="/mnt/vault/jobiris"
+  [gitea-runner]="/mnt/codex/gitea/runner"
+  [tado]="/mnt/codex/tado-exporter"
+  [midea]="/mnt/codex/midea-exporter"
+  [netatmo]="/mnt/codex/netatmo-exporter"
+)
+
+# Bind mounts that are intentionally not tar'd because they are captured by
+# another mechanism (a database dump). Everything else under /mnt/codex or
+# /mnt/vault that a running container binds is expected to be covered.
+DRIFT_IGNORE=(
+  "/mnt/codex/nextcloud/db"    # captured by mariadb-dump
+  "/mnt/codex/immich/db"       # captured by pg_dumpall
+  "/mnt/codex/ghost/db"        # captured by mariadb-dump
+  "/mnt/codex/prometheus"      # not backed up by design — see the Prometheus
+                               # section below for the full reasoning
+  "/mnt/codex/loki"            # log storage; regenerates as logs come in
+  "/mnt/codex/alloy"           # collector state; rebuilt on start
+  "/mnt/codex/alertmanager"    # silences and notification state; rebuilt from
+                               # the config, and a lost silence expires anyway
+  "/mnt/codex/carousel/jobs"   # regenerable job artefacts
+  "/mnt/codex/wakapi"          # DELIBERATE ACCEPTED LOSS, not regenerable.
+                               # SQLite with years of coding statistics —
+                               # decided 2026-08-30 that it is not worth a
+                               # backup step. Revisit if that changes.
+)
 
 # ── Flags ──────────────────────────────────────────────────────────────────────
 FORCE=false
@@ -72,12 +139,19 @@ for arg in "$@"; do
       echo "  --only=<service>     Back up a single service only"
       echo "                       Services: vaultwarden, caddy, calibre, calibre-web,"
       echo "                                 kosync, syncthing, aegis, gitea, nextcloud,"
-      echo "                                 immich, grafana, prometheus, stacks"
+      echo "                                 ghost, immich, grafana, jobiris,"
+      echo "                                 gitea-runner, exporters, stacks"
       echo "  --retention=<days>   Override the default retention period"
       exit 1
       ;;
   esac
 done
+
+# Recomputed here because --retention= is parsed above and MAX_SKIP_DAYS is
+# derived from it. Floor of 1 so --retention=1 or =2 cannot produce 0 or a
+# negative value, which would force a full backup on every single run.
+MAX_SKIP_DAYS=$(( RETENTION_DAYS - 2 ))
+[ "$MAX_SKIP_DAYS" -lt 1 ] && MAX_SKIP_DAYS=1
 
 # Load Nextcloud DB password from stack .env
 ENV_NEXTCLOUD="/home/youruser/stacks/nextcloud/.env"
@@ -99,7 +173,7 @@ BOLD='\033[1m'
 RESET='\033[0m'
 
 # ── Step counter ───────────────────────────────────────────────────────────────
-TOTAL_STEPS=14
+TOTAL_STEPS=17
 CURRENT_STEP=0
 ERRORS=0
 
@@ -194,7 +268,7 @@ run_tar() {
     return 0
   fi
   "$@" 2>&1 | grep -v "Removing leading" | strip_ansi >> "$LOG"
-  return ${PIPESTATUS[0]}
+  return "${PIPESTATUS[0]}"
 }
 
 # Run command with visible output on terminal (for status messages like maintenance mode)
@@ -209,7 +283,7 @@ run_visible() {
   "$@" 2>&1 | tee >(strip_ansi >> "$LOG")
   local exit_code=${PIPESTATUS[0]}
   spinner_start "$SPINNER_MSG"
-  return $exit_code
+  return "$exit_code"
 }
 
 ok() {
@@ -287,11 +361,74 @@ summary_line() {
 }
 
 
+# Returns 0 (true) if SOURCE exists as a directory and is not empty.
+# Every service block calls this before archiving. Without it, a renamed,
+# unmounted or migrated source produces a valid archive of nothing and the run
+# reports success — the exact failure that went unnoticed for nine nights when
+# four services moved from named volumes to bind mounts.
+assert_source() {
+  local service="$1"
+  local path="$2"
+
+  if [ "$DRY_RUN" = true ]; then
+    log_file "  [dry-run] would assert source: $path"
+    return 0
+  fi
+  if [ ! -d "$path" ]; then
+    fail "$service — source path does not exist: $path"
+    return 1
+  fi
+  if [ -z "$(ls -A "$path" 2>/dev/null)" ]; then
+    fail "$service — source path is empty: $path"
+    return 1
+  fi
+  return 0
+}
+
+# Returns 0 (true) if FILE exists and contains at least MIN_ARCHIVE_ENTRIES
+# members. tar exiting 0 only proves it wrote a syntactically valid archive, not
+# that it wrote any data. The listing is bounded to MIN_ARCHIVE_ENTRIES members
+# so the check costs the same on a 70 GB .tar as on a 2 KB one — tar stops at
+# the first members and SIGPIPE ends the read.
+assert_archive() {
+  local label="$1"
+  local file="$2"
+
+  if [ "$DRY_RUN" = true ]; then
+    log_file "  [dry-run] would assert archive: $file"
+    return 0
+  fi
+  if [ ! -f "$file" ]; then
+    fail "$label — archive was not created: $(basename "$file")"
+    return 1
+  fi
+
+  local entries
+  case "$file" in
+    *.tar.gz) entries=$(tar -tzf "$file" 2>/dev/null | head -"$MIN_ARCHIVE_ENTRIES" | wc -l) ;;
+    *.tar)    entries=$(tar -tf  "$file" 2>/dev/null | head -"$MIN_ARCHIVE_ENTRIES" | wc -l) ;;
+    *)        entries=$MIN_ARCHIVE_ENTRIES ;;
+  esac
+
+  if [ "$entries" -lt "$MIN_ARCHIVE_ENTRIES" ]; then
+    fail "$label — archive contains only $entries entr(ies): $(basename "$file") ($(stat -c%s "$file") bytes)"
+    return 1
+  fi
+  log_file "  Archive assertion passed for $label (>= $entries entries)"
+  return 0
+}
+
 # Returns 0 (true) if files under PATH have changed since the last successful
 # backup of SERVICE, or if no timestamp exists yet (first run).
+#
+# ARCHIVE_NAME is optional. When given, the skip chain is also bounded: if the
+# last real archive is missing or close to falling out of the retention window,
+# change detection is overridden so a fresh full archive is written before the
+# old one is pruned.
 has_changed() {
   local service="$1"
   local path="$2"
+  local archive_name="$3"
   local ts_file="$TIMESTAMP_DIR/$service"
 
   if [ "$FORCE" = true ]; then
@@ -299,9 +436,39 @@ has_changed() {
     return 0
   fi
 
+  # A vanished or emptied source must never read as "nothing changed".
+  # find on a nonexistent path returns zero results, which is numerically
+  # identical to "no modifications" — return "changed" so the service block
+  # runs assert_source and turns this into a hard FAIL instead of a silent skip.
+  if [ ! -d "$path" ] || [ -z "$(ls -A "$path" 2>/dev/null)" ]; then
+    log_file "  Source missing or empty for $service ($path) — not treating as unchanged"
+    return 0
+  fi
+
   if [ ! -f "$ts_file" ]; then
     log_file "  No timestamp found for $service — treating as changed (first run)"
     return 0
+  fi
+
+  # Bound the skip chain against the retention window.
+  if [ -n "$archive_name" ]; then
+    local last_date
+    last_date=$(last_real_backup_date "$archive_name")
+    if [ -z "$last_date" ]; then
+      log_file "  No real archive left for $archive_name — forcing full backup"
+      return 0
+    fi
+    local last_epoch age_days
+    last_epoch=$(date -d "$last_date" +%s 2>/dev/null)
+    if [ -z "$last_epoch" ]; then
+      log_file "  Unparsable reference date '$last_date' for $archive_name — forcing full backup"
+      return 0
+    fi
+    age_days=$(( ( $(date +%s) - last_epoch ) / 86400 ))
+    if [ "$age_days" -ge "$MAX_SKIP_DAYS" ]; then
+      log_file "  Last real $archive_name is ${age_days}d old (limit ${MAX_SKIP_DAYS}d) — forcing full backup"
+      return 0
+    fi
   fi
 
   local count
@@ -331,22 +498,107 @@ last_real_backup_date() {
 # real archive (required because exFAT does not support hardlinks or symlinks).
 skip() {
   local elapsed=$(( $(date +%s) - STEP_START_TIME ))
-  spinner_stop
   local label="$1"
   local archive_name="$2"
   local last_date
   last_date=$(last_real_backup_date "$archive_name")
+
+  # A marker pointing at nothing is worse than no marker: verify-backup.sh
+  # reports SKIP (counted as a pass) while no archive exists anywhere. If the
+  # chain has no anchor, this is a failure, not a skip.
+  if [ -z "$last_date" ]; then
+    fail "$label — skip requested but no real archive of $archive_name exists in $BACKUP_DIR"
+    return
+  fi
+
+  spinner_stop
   echo -e "  ${YELLOW}⊘ SKIP${RESET}  $label — no changes since last backup ($(format_duration $elapsed))"
   echo "  ⊘ SKIP  $label — no changes since last backup ($(format_duration $elapsed))" >> "$LOG"
-  if [ -n "$last_date" ]; then
-    echo "$last_date" > "$BACKUP_DIR/$DATE/${archive_name}.SKIPPED"
-    log_file "  Last real archive: $last_date/$archive_name"
-  fi
+  echo "$last_date" > "$BACKUP_DIR/$DATE/${archive_name}.SKIPPED"
+  log_file "  Last real archive: $last_date/$archive_name"
+
   if [ -n "$CURRENT_SERVICE" ]; then
     STEP_DURATIONS["$CURRENT_SERVICE"]=$elapsed
     STEP_STATUSES["$CURRENT_SERVICE"]=2
   fi
   SKIPPED_TOTAL=$(( SKIPPED_TOTAL + 1 ))
+}
+
+# ── Mount drift detection ──────────────────────────────────────────────────────
+# Compares every persistent bind mount of every running container against
+# SOURCE_PATHS. Anything not covered is reported and counted.
+#
+# This exists because of the August 2026 incident: calibre-web, kosync, grafana
+# and prometheus were migrated from named volumes to bind mounts. This script
+# kept archiving the orphaned volumes, which docker silently re-creates empty on
+# demand, so tar succeeded every night on an empty directory and the run reported
+# "all steps completed successfully" for nine consecutive days.
+#
+# Reported as a warning rather than a hard failure on purpose: adding a new stack
+# is a normal event and must not block the nightly backup or the offsite trigger.
+# The count is exported as backup_uncovered_mounts so Alertmanager owns the
+# escalation. Change to fail() if a blocking gate is preferred.
+UNCOVERED_MOUNTS=0
+
+check_mount_drift() {
+  local containers c src decl svc covered ignored ign
+
+  containers=$(docker ps --format '{{.Names}}' 2>/dev/null)
+  [ -z "$containers" ] && return 0
+
+  for c in $containers; do
+    while read -r src; do
+      [ -z "$src" ] && continue
+
+      # Persistent data lives under these two roots only. Config bind mounts
+      # from the git working tree are covered by the "stacks" archive.
+      case "$src" in
+        /mnt/codex/*|/mnt/vault/*) ;;
+        *) continue ;;
+      esac
+
+      # Single-file binds (certificates, config files) are not backup targets.
+      [ -d "$src" ] || continue
+
+      ignored=false
+      for ign in "${DRIFT_IGNORE[@]}"; do
+        if [ "$src" = "$ign" ] || [[ "$src" == "$ign"/* ]]; then
+          ignored=true
+          break
+        fi
+      done
+      [ "$ignored" = true ] && continue
+
+      covered=false
+      for svc in "${!SOURCE_PATHS[@]}"; do
+        decl="${SOURCE_PATHS[$svc]%/}"
+        if [ "$src" = "$decl" ] || [[ "$src" == "$decl"/* ]]; then
+          covered=true
+          break
+        fi
+      done
+
+      if [ "$covered" = false ]; then
+        echo -e "  ${YELLOW}⚠ DRIFT${RESET}  ${c}: ${src} — not covered by any backup source"
+        echo "  ⚠ DRIFT  ${c}: ${src} — not covered by any backup source" >> "$LOG"
+        UNCOVERED_MOUNTS=$(( UNCOVERED_MOUNTS + 1 ))
+      fi
+    done < <(docker inspect "$c" \
+      --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\n"}}{{end}}{{end}}' 2>/dev/null)
+  done
+
+  # An orphaned named volume left over from a bind-mount migration is the same
+  # class of problem seen from the other side — docker re-creates it empty on
+  # demand, so nothing ever errors.
+  local vol
+  for vol in $(docker volume ls -q 2>/dev/null); do
+    case "$vol" in
+      calibre-web-config|kosync-data|grafana-data|prometheus-data)
+        echo -e "  ${YELLOW}⚠ DRIFT${RESET}  orphaned named volume still present: ${vol}"
+        echo "  ⚠ DRIFT  orphaned named volume still present: ${vol}" >> "$LOG"
+        ;;
+    esac
+  done
 }
 
 # Marks an entire step as skipped because --only excluded it.
@@ -362,7 +614,7 @@ skipped_service() {
 # silently match nothing and skip every single service while still reporting
 # a clean run — that happened, and it's the most dangerous failure mode of
 # all: zero backups taken, exit code 0, "all steps completed successfully".
-VALID_SERVICES="vaultwarden caddy calibre calibre-web kosync syncthing aegis gitea nextcloud immich grafana prometheus stacks"
+VALID_SERVICES="vaultwarden caddy calibre calibre-web kosync syncthing aegis gitea ghost nextcloud immich grafana jobiris gitea-runner exporters stacks"
 if [ -n "$ONLY" ]; then
   MATCH=false
   for svc in $VALID_SERVICES; do
@@ -413,6 +665,19 @@ if ! docker info >/dev/null 2>&1; then
   echo -e "${RED}${BOLD}  ERROR: Docker is not running.${RESET}"
   echo "  ERROR: Docker is not running." >> "$LOG"
   exit 1
+fi
+
+# Compare live container mounts against the declared backup sources
+echo ""
+echo -e "  ${CYAN}Checking mount drift against declared backup sources...${RESET}"
+echo "  Checking mount drift..." >> "$LOG"
+check_mount_drift
+if [ "$UNCOVERED_MOUNTS" -eq 0 ]; then
+  echo -e "  ${GREEN}No uncovered persistent mounts.${RESET}"
+  echo "  No uncovered persistent mounts." >> "$LOG"
+else
+  echo -e "  ${YELLOW}${UNCOVERED_MOUNTS} persistent mount(s) have no backup coverage.${RESET}"
+  echo "  ${UNCOVERED_MOUNTS} persistent mount(s) have no backup coverage." >> "$LOG"
 fi
 
 # Check Vaultwarden database exists before attempting backup
@@ -503,15 +768,24 @@ step "Vaultwarden"
 CURRENT_SERVICE="vaultwarden"
 if ! should_run "vaultwarden"; then skipped_service "Vaultwarden"
 else
-  run sqlite3 /mnt/vault/vaultwarden/data/db.sqlite3 \
-    ".backup $BACKUP_DIR/$DATE/vaultwarden-db.sqlite3"
-  run_tar tar -czf "$BACKUP_DIR/$DATE/vaultwarden-data.tar.gz" \
-    /mnt/vault/vaultwarden/data/
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/vaultwarden-data.tar.gz"
-    ok "Vaultwarden saved"
-  else
-    fail "Vaultwarden failed"
+  # Exit codes captured separately: the previous version tested $? after the tar
+  # only, so a failed sqlite3 .backup was reported as success.
+  if assert_source "Vaultwarden" "${SOURCE_PATHS[vaultwarden]}"; then
+    run sqlite3 /mnt/vault/vaultwarden/data/db.sqlite3 \
+      ".backup $BACKUP_DIR/$DATE/vaultwarden-db.sqlite3"
+    DB_RC=$?
+    run_tar tar -czf "$BACKUP_DIR/$DATE/vaultwarden-data.tar.gz" \
+      "${SOURCE_PATHS[vaultwarden]}/"
+    TAR_RC=$?
+
+    if [ "$DB_RC" -ne 0 ]; then
+      fail "Vaultwarden — sqlite3 .backup failed (exit: $DB_RC)"
+    elif [ "$TAR_RC" -ne 0 ]; then
+      fail "Vaultwarden — tar failed (exit: $TAR_RC)"
+    elif assert_archive "Vaultwarden" "$BACKUP_DIR/$DATE/vaultwarden-data.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/vaultwarden-data.tar.gz"
+      ok "Vaultwarden saved"
+    fi
   fi
 fi
 
@@ -519,13 +793,15 @@ step "Caddy TLS certificates"
 CURRENT_SERVICE="caddy"
 if ! should_run "caddy"; then skipped_service "Caddy TLS certificates"
 else
-  run_tar tar -czf "$BACKUP_DIR/$DATE/caddy-data.tar.gz" \
-    /mnt/vault/caddy/
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/caddy-data.tar.gz"
-    ok "Caddy saved"
-  else
-    fail "Caddy failed"
+  if assert_source "Caddy" "${SOURCE_PATHS[caddy]}"; then
+    run_tar tar -czf "$BACKUP_DIR/$DATE/caddy-data.tar.gz" \
+      "${SOURCE_PATHS[caddy]}/"
+    if [ $? -ne 0 ]; then
+      fail "Caddy failed"
+    elif assert_archive "Caddy" "$BACKUP_DIR/$DATE/caddy-data.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/caddy-data.tar.gz"
+      ok "Caddy saved"
+    fi
   fi
 fi
 
@@ -536,49 +812,59 @@ step "Calibre Library"
 CURRENT_SERVICE="calibre"
 if ! should_run "calibre"; then
   skipped_service "Calibre Library"
-elif has_changed "calibre" /mnt/codex/calibre-library/; then
-  run_tar tar -czf "$BACKUP_DIR/$DATE/calibre-library.tar.gz" \
-    /mnt/codex/calibre-library/
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/calibre-library.tar.gz"
-    ok "Calibre Library saved"
-    mark_backed_up "calibre"
-  else
-    fail "Calibre Library failed"
+elif has_changed "calibre" "${SOURCE_PATHS[calibre]}" "calibre-library.tar.gz"; then
+  if assert_source "Calibre Library" "${SOURCE_PATHS[calibre]}"; then
+    run_tar tar -czf "$BACKUP_DIR/$DATE/calibre-library.tar.gz" \
+      "${SOURCE_PATHS[calibre]}/"
+    if [ $? -ne 0 ]; then
+      fail "Calibre Library failed"
+    elif assert_archive "Calibre Library" "$BACKUP_DIR/$DATE/calibre-library.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/calibre-library.tar.gz"
+      ok "Calibre Library saved"
+      mark_backed_up "calibre"
+    fi
   fi
 else
   skip "Calibre Library" "calibre-library.tar.gz"
 fi
 
-step "Calibre-Web Config (Docker Volume)"
+# Migrated 2026-08-19 from the named volume "calibre-web-config" to the bind
+# mount the container has actually used since 2026-08-10. The old form was
+# `docker run -v calibre-web-config:/volume ... tar`, which can never fail:
+# docker creates the named volume on demand if it is absent, so tar always
+# found a directory, always exited 0, and always produced an 85-byte archive.
+step "Calibre-Web Config"
 CURRENT_SERVICE="calibre-web"
 if ! should_run "calibre-web"; then skipped_service "Calibre-Web Config"
 else
-  run docker run --rm \
-    -v calibre-web-config:/volume \
-    -v "$BACKUP_DIR/$DATE":/backup \
-    alpine tar -czf /backup/calibre-web-config.tar.gz -C /volume .
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/calibre-web-config.tar.gz"
-    ok "Calibre-Web config saved"
-  else
-    fail "Calibre-Web config failed"
+  if assert_source "Calibre-Web config" "${SOURCE_PATHS[calibre-web]}"; then
+    run_tar tar -czf "$BACKUP_DIR/$DATE/calibre-web-config.tar.gz" \
+      "${SOURCE_PATHS[calibre-web]}/"
+    if [ $? -ne 0 ]; then
+      fail "Calibre-Web config failed"
+    elif assert_archive "Calibre-Web config" "$BACKUP_DIR/$DATE/calibre-web-config.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/calibre-web-config.tar.gz"
+      ok "Calibre-Web config saved"
+    fi
   fi
 fi
 
-step "KOSync (Docker Volume)"
+# Migrated 2026-08-19 from the named volume "kosync-data" — same reasoning as
+# Calibre-Web above. app.db is SQLite but sees no concurrent writes at 02:00
+# (KOReader syncs on demand from a single device), so no container stop.
+step "KOSync"
 CURRENT_SERVICE="kosync"
 if ! should_run "kosync"; then skipped_service "KOSync"
 else
-  run docker run --rm \
-    -v kosync-data:/volume \
-    -v "$BACKUP_DIR/$DATE":/backup \
-    alpine tar -czf /backup/kosync-data.tar.gz -C /volume .
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/kosync-data.tar.gz"
-    ok "KOSync saved"
-  else
-    fail "KOSync failed"
+  if assert_source "KOSync" "${SOURCE_PATHS[kosync]}"; then
+    run_tar tar -czf "$BACKUP_DIR/$DATE/kosync-data.tar.gz" \
+      "${SOURCE_PATHS[kosync]}/"
+    if [ $? -ne 0 ]; then
+      fail "KOSync failed"
+    elif assert_archive "KOSync" "$BACKUP_DIR/$DATE/kosync-data.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/kosync-data.tar.gz"
+      ok "KOSync saved"
+    fi
   fi
 fi
 
@@ -586,15 +872,42 @@ step "Syncthing"
 CURRENT_SERVICE="syncthing"
 if ! should_run "syncthing"; then skipped_service "Syncthing"
 else
-  run_tar tar -czf "$BACKUP_DIR/$DATE/syncthing-obsidian.tar.gz" \
-    /mnt/codex/syncthing/obsidian/
-  run_tar tar -czf "$BACKUP_DIR/$DATE/syncthing-config.tar.gz" \
-    /home/youruser/.local/state/syncthing/
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/syncthing-obsidian.tar.gz"
-    ok "Syncthing saved"
-  else
-    fail "Syncthing failed"
+  # Both archives asserted individually: the previous version tested $? after
+  # the config tar only, so a failed vault tar was reported as success.
+  if assert_source "Syncthing vault" "${SOURCE_PATHS[syncthing]}"; then
+    # The vault archive. Previously this tar was accidentally overwritten by
+    # the config tar below — both wrote to syncthing-config.tar.gz, so
+    # syncthing-obsidian.tar.gz silently stopped being produced and
+    # assert_archive kept passing against the previous day's file.
+    run_tar tar -czf "$BACKUP_DIR/$DATE/syncthing-obsidian.tar.gz" \
+      "${SOURCE_PATHS[syncthing]}/"
+    VAULT_RC=$?
+
+    # index-v*.db is Syncthing's LevelDB sync state: 14 MB of derived data
+    # against 36 KB of actual config. It is written continuously, so tar hits
+    # "file changed as we read it" and exits 1 — the same race that took
+    # Prometheus out of this backup on 2026-08-19.
+    #
+    # Syncthing rebuilds the index on startup when it is missing, so nothing
+    # is lost: config.xml plus the certificates are what a restore needs.
+    # syncthing.lock excluded too — a restored lock file can block startup.
+    #
+    # Patterns need the */ prefix: tar matches the stored path
+    # (home/youruser/.local/state/syncthing/index-v0.14.0.db), not the
+    # basename, so a bare 'index-v*.db' silently matched nothing.
+    run_tar tar -czf "$BACKUP_DIR/$DATE/syncthing-config.tar.gz" \
+      --exclude='*/index-v*.db' \
+      --exclude='*/syncthing.lock' \
+      /home/youruser/.local/state/syncthing/
+    CONF_RC=$?
+
+    if [ "$VAULT_RC" -ne 0 ] || [ "$CONF_RC" -ne 0 ]; then
+      fail "Syncthing failed (vault:$VAULT_RC config:$CONF_RC)"
+    elif assert_archive "Syncthing vault" "$BACKUP_DIR/$DATE/syncthing-obsidian.tar.gz" \
+      && assert_archive "Syncthing config" "$BACKUP_DIR/$DATE/syncthing-config.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/syncthing-obsidian.tar.gz"
+      ok "Syncthing saved"
+    fi
   fi
 fi
 
@@ -602,13 +915,15 @@ step "Aegis 2FA backup"
 CURRENT_SERVICE="aegis"
 if ! should_run "aegis"; then skipped_service "Aegis 2FA backup"
 else
-  run_tar tar -czf "$BACKUP_DIR/$DATE/aegis-backup.tar.gz" \
-    /mnt/codex/syncthing/aegis/
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/aegis-backup.tar.gz"
-    ok "Aegis saved"
-  else
-    fail "Aegis failed"
+  if assert_source "Aegis 2FA backup" "${SOURCE_PATHS[aegis]}"; then
+    run_tar tar -czf "$BACKUP_DIR/$DATE/aegis-backup.tar.gz" \
+      "${SOURCE_PATHS[aegis]}/"
+    if [ $? -ne 0 ]; then
+      fail "Aegis failed"
+    elif assert_archive "Aegis 2FA backup" "$BACKUP_DIR/$DATE/aegis-backup.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/aegis-backup.tar.gz"
+      ok "Aegis saved"
+    fi
   fi
 fi
 
@@ -616,7 +931,7 @@ step "Gitea"
 CURRENT_SERVICE="gitea"
 if ! should_run "gitea"; then
   skipped_service "Gitea"
-elif has_changed "gitea" /mnt/codex/gitea/data/; then
+elif has_changed "gitea" "${SOURCE_PATHS[gitea]}" "gitea-data.tar.gz"; then
   # gitea.db is Gitea's built-in SQLite database, actively written by the
   # running container (e.g. the Act Runner on every push/webhook). A raw tar
   # read of a live SQLite file races with concurrent writes — "file changed
@@ -624,21 +939,89 @@ elif has_changed "gitea" /mnt/codex/gitea/data/; then
   # concurrent writers), Gitea has no such API exposed, so the container is
   # stopped briefly instead. Acceptable: Gitea is not internet-facing and has
   # no other consumers at 2am.
-  run docker stop gitea
-  run_tar tar -czf "$BACKUP_DIR/$DATE/gitea-data.tar.gz" \
-    /mnt/codex/gitea/data/
-  TAR_RC=$?
-  run docker start gitea
+  if assert_source "Gitea" "${SOURCE_PATHS[gitea]}"; then
+    run docker stop gitea
+    run_tar tar -czf "$BACKUP_DIR/$DATE/gitea-data.tar.gz" \
+      "${SOURCE_PATHS[gitea]}/"
+    TAR_RC=$?
+    # Restarted before the assertion so a failed assertion can never leave
+    # Gitea stopped.
+    run docker start gitea
 
-  if [ "$TAR_RC" -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/gitea-data.tar.gz"
-    ok "Gitea saved"
-    mark_backed_up "gitea"
-  else
-    fail "Gitea failed"
+    if [ "$TAR_RC" -ne 0 ]; then
+      fail "Gitea failed"
+    elif assert_archive "Gitea" "$BACKUP_DIR/$DATE/gitea-data.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/gitea-data.tar.gz"
+      ok "Gitea saved"
+      mark_backed_up "gitea"
+    fi
   fi
 else
   skip "Gitea" "gitea-data.tar.gz"
+fi
+
+# Ghost — girlfriend's blog. Two artefacts, same reasoning as Nextcloud and
+# Immich: the database is DUMPED, never tar'd. ghost-db is a live MySQL
+# instance; a raw tar of its datadir while it is running produces a
+# guaranteed-corrupt backup that only reveals itself at restore time.
+#
+# Added 2026-08-23. Until then this stack had no backup at all — it was the
+# highest-priority entry on the mount-drift list because the data is not mine
+# to lose.
+step "Ghost (DB dump + content)"
+CURRENT_SERVICE="ghost"
+if ! should_run "ghost"; then
+  skipped_service "Ghost"
+elif has_changed "ghost" "${SOURCE_PATHS[ghost]}" "ghost-content.tar.gz"; then
+  # Sourced locally rather than globally so a missing Ghost .env only fails
+  # this step, not unrelated --only runs. Same pattern as Immich.
+  ENV_GHOST="/home/youruser/stacks/ghost/.env"
+  if [ ! -f "$ENV_GHOST" ]; then
+    fail "Ghost — .env not found: $ENV_GHOST"
+  elif assert_source "Ghost content" "${SOURCE_PATHS[ghost]}"; then
+    # shellcheck source=/dev/null
+    source "$ENV_GHOST"
+
+    # mysqldump, not mariadb-dump: ghost-db runs mysql:8.0, unlike
+    # nextcloud-db. Database name and user are hardcoded as "ghost" in the
+    # stack's docker-compose.yml (MYSQL_DATABASE / MYSQL_USER), not taken from
+    # .env — only the password is a variable.
+    #
+    # --single-transaction gives a consistent snapshot of the InnoDB tables
+    # without locking them, so the blog stays writable for the duration of the
+    # dump. Without it mysqldump takes a read lock across all tables.
+    #
+    # stderr kept separate so warnings never land inside the SQL file.
+    docker exec ghost-db mysqldump \
+      --single-transaction \
+      -u ghost -p"$GHOST_DB_PASSWORD" ghost \
+      > "$BACKUP_DIR/$DATE/ghost-db.sql" \
+      2> >(strip_ansi >> "$LOG")
+    DB_EXIT=$?
+
+    if [ "$DB_EXIT" -ne 0 ] || [ ! -s "$BACKUP_DIR/$DATE/ghost-db.sql" ]; then
+      log_file "  Ghost DB dump failed (exit: $DB_EXIT)"
+    else
+      DB_SIZE=$(du -sh "$BACKUP_DIR/$DATE/ghost-db.sql" | cut -f1)
+      log_file "  Ghost DB dump size: $DB_SIZE"
+    fi
+
+    # Content is themes, images and uploads — compressible, so gzip unlike the
+    # photo/video archives.
+    run_tar tar -czf "$BACKUP_DIR/$DATE/ghost-content.tar.gz" \
+      "${SOURCE_PATHS[ghost]}/"
+    TAR_EXIT=$?
+
+    if [ "$DB_EXIT" -ne 0 ] || [ "$TAR_EXIT" -ne 0 ]; then
+      fail "Ghost — DB dump or content archive failed (db:$DB_EXIT tar:$TAR_EXIT)"
+    elif assert_archive "Ghost content" "$BACKUP_DIR/$DATE/ghost-content.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/ghost-content.tar.gz"
+      ok "Ghost saved"
+      mark_backed_up "ghost"
+    fi
+  fi
+else
+  skip "Ghost" "ghost-content.tar.gz"
 fi
 
 step "Nextcloud (maintenance mode + DB dump + files)"
@@ -646,7 +1029,7 @@ CURRENT_SERVICE="nextcloud"
 
 if ! should_run "nextcloud"; then
   skipped_service "Nextcloud"
-elif ! has_changed "nextcloud" /mnt/codex/nextcloud/data/; then
+elif ! has_changed "nextcloud" "${SOURCE_PATHS[nextcloud]}" "nextcloud-data.tar"; then
   skip "Nextcloud" "nextcloud-data.tar"
   # DB dump is tightly coupled to the file backup — skip both together.
   # The last real DB dump is in the same directory as the last real data archive.
@@ -678,17 +1061,17 @@ else
   # --sort=name gives deterministic member order so restic can deduplicate this
   # 73 GB archive across snapshots; without it, shifting byte offsets defeat dedup.
   run_tar tar --sort=name -cf "$BACKUP_DIR/$DATE/nextcloud-data.tar" \
-    /mnt/codex/nextcloud/data/
+    "${SOURCE_PATHS[nextcloud]}/"
 
   run_visible docker exec -u www-data nextcloud php occ maintenance:mode --off
   trap - EXIT
 
-  if [ "$DB_EXIT" -eq 0 ]; then
+  if [ "$DB_EXIT" -ne 0 ]; then
+    fail "Nextcloud files saved but DB dump failed"
+  elif assert_archive "Nextcloud data" "$BACKUP_DIR/$DATE/nextcloud-data.tar"; then
     record_archive_size "$BACKUP_DIR/$DATE/nextcloud-data.tar"
     ok "Nextcloud saved"
     mark_backed_up "nextcloud"
-  else
-    fail "Nextcloud files saved but DB dump failed"
   fi
 fi
 
@@ -701,7 +1084,7 @@ step "Immich"
 CURRENT_SERVICE="immich"
 if ! should_run "immich"; then
   skipped_service "Immich"
-elif has_changed "immich" /mnt/codex/immich/upload/; then
+elif has_changed "immich" "${SOURCE_PATHS[immich]}" "immich-upload.tar"; then
   # Sourced locally rather than globally (unlike ENV_NEXTCLOUD above) so a
   # missing Immich .env only fails this step, not unrelated --only runs.
   ENV_IMMICH="/home/youruser/stacks/immich/.env"
@@ -733,15 +1116,15 @@ elif has_changed "immich" /mnt/codex/immich/upload/; then
     # same as documented in 16_Immich.md.
     run_tar tar --sort=name -cf "$BACKUP_DIR/$DATE/immich-upload.tar" \
       --exclude='encoded-video' \
-      /mnt/codex/immich/upload/
+      "${SOURCE_PATHS[immich]}/"
     TAR_EXIT=$?
 
-    if [ "$DB_EXIT" -eq 0 ] && [ "$TAR_EXIT" -eq 0 ]; then
+    if [ "$DB_EXIT" -ne 0 ] || [ "$TAR_EXIT" -ne 0 ]; then
+      fail "Immich — DB dump or upload archive failed (db:$DB_EXIT tar:$TAR_EXIT)"
+    elif assert_archive "Immich upload" "$BACKUP_DIR/$DATE/immich-upload.tar"; then
       record_archive_size "$BACKUP_DIR/$DATE/immich-upload.tar"
       ok "Immich saved"
       mark_backed_up "immich"
-    else
-      fail "Immich — DB dump or upload archive failed (db:$DB_EXIT tar:$TAR_EXIT)"
     fi
   fi
 else
@@ -751,52 +1134,137 @@ fi
 
 # ── MONITORING ─────────────────────────────────────────────────────────────────
 
-step "Grafana (Docker Volume)"
+# Migrated 2026-08-19 from the named volume "grafana-data" to the bind mount in
+# use since 2026-08-10. The container is stopped for the duration of the tar:
+# grafana.db is SQLite and is written live (sessions, annotations, dashboard
+# saves). Same reasoning as Gitea — Grafana exposes no online backup API, and a
+# raw tar of a live SQLite file races with writers. Prometheus keeps scraping
+# while Grafana is down; only the UI is briefly unavailable at 02:00.
+step "Grafana"
 CURRENT_SERVICE="grafana"
 if ! should_run "grafana"; then skipped_service "Grafana"
 else
-  run docker run --rm \
-    -v grafana-data:/volume \
-    -v "$BACKUP_DIR/$DATE":/backup \
-    alpine tar -czf /backup/grafana-data.tar.gz -C /volume .
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/grafana-data.tar.gz"
-    ok "Grafana saved"
-  else
-    fail "Grafana failed"
+  if assert_source "Grafana" "${SOURCE_PATHS[grafana]}"; then
+    run docker stop grafana
+    run_tar tar -czf "$BACKUP_DIR/$DATE/grafana-data.tar.gz" \
+      "${SOURCE_PATHS[grafana]}/"
+    TAR_RC=$?
+    run docker start grafana
+
+    if [ "$TAR_RC" -ne 0 ]; then
+      fail "Grafana failed"
+    elif assert_archive "Grafana" "$BACKUP_DIR/$DATE/grafana-data.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/grafana-data.tar.gz"
+      ok "Grafana saved"
+    fi
   fi
 fi
 
-step "Prometheus (Docker Volume)"
-CURRENT_SERVICE="prometheus"
-if ! should_run "prometheus"; then skipped_service "Prometheus"
-else
-  run docker run --rm \
-    -v prometheus-data:/volume \
-    -v "$BACKUP_DIR/$DATE":/backup \
-    alpine tar -czf /backup/prometheus-data.tar.gz -C /volume .
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/prometheus-data.tar.gz"
-    ok "Prometheus saved"
-  else
-    fail "Prometheus failed"
-  fi
-fi
+# Prometheus is deliberately NOT backed up. Removed 2026-08-19.
+#
+# The TSDB writes its WAL continuously, so a hot tar reliably exits 1 with
+# "file changed as we read it" (observed on /mnt/codex/prometheus/wal/00001845).
+# A step that fails every night permanently blocks the offsite trigger, which
+# only fires on ERRORS -eq 0 — reproducing the exact stall that left this
+# homelab without an offsite copy for 40 days.
+#
+# The three ways out were: suppress the warning, stop the container during the
+# tar, or drop the service. Suppressing keeps shipping 2.5 GB per night of data
+# that XX_Backup-Strategie.md already classifies as expendable, and restic
+# deduplicates TSDB blocks poorly because compaction rewrites them. Stopping
+# tears a multi-minute hole in every time series, including the backup metrics
+# used to monitor this script. Dropping it is the only option with no ongoing
+# cost, and it matches what the documentation already recommended.
+#
+# Grafana stays in the backup — dashboards, users and annotations are not
+# regenerable. Prometheus data refills within hours of a rebuild.
 
 
 # ── STACK CONFIGS ──────────────────────────────────────────────────────────────
+
+# JobIris — job application tracking. Lives under /mnt/vault because it holds
+# personal data. Small, changes rarely, no database to dump.
+step "JobIris"
+CURRENT_SERVICE="jobiris"
+if ! should_run "jobiris"; then skipped_service "JobIris"
+else
+  if assert_source "JobIris" "${SOURCE_PATHS[jobiris]}"; then
+    run_tar tar -czf "$BACKUP_DIR/$DATE/jobiris.tar.gz" \
+      "${SOURCE_PATHS[jobiris]}/"
+    if [ $? -ne 0 ]; then
+      fail "JobIris failed"
+    elif assert_archive "JobIris" "$BACKUP_DIR/$DATE/jobiris.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/jobiris.tar.gz"
+      ok "JobIris saved"
+    fi
+  fi
+fi
+
+# Gitea Act Runner — registration state (.runner) and the SSH keys the runner
+# uses. Losing this means re-registering the runner against Gitea by hand and
+# regenerating keys; small file, cheap insurance.
+step "Gitea Act Runner"
+CURRENT_SERVICE="gitea-runner"
+if ! should_run "gitea-runner"; then skipped_service "Gitea Act Runner"
+else
+  if assert_source "Gitea Act Runner" "${SOURCE_PATHS[gitea-runner]}"; then
+    run_tar tar -czf "$BACKUP_DIR/$DATE/gitea-runner.tar.gz" \
+      "${SOURCE_PATHS[gitea-runner]}/"
+    if [ $? -ne 0 ]; then
+      fail "Gitea Act Runner failed"
+    elif assert_archive "Gitea Act Runner" "$BACKUP_DIR/$DATE/gitea-runner.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/gitea-runner.tar.gz"
+      ok "Gitea Act Runner saved"
+    fi
+  fi
+fi
+
+# Exporter token stores — tado, midea and netatmo each cache an OAuth token or
+# session against a third-party API. A few KB in total, but losing them means
+# re-authenticating against three vendor portals by hand. Grouped into one
+# archive because they are tiny and always change together (or not at all).
+step "Exporter tokens"
+CURRENT_SERVICE="exporters"
+if ! should_run "exporters"; then skipped_service "Exporter tokens"
+else
+  EXPORTER_OK=true
+  for svc in tado midea netatmo; do
+    assert_source "Exporter tokens ($svc)" "${SOURCE_PATHS[$svc]}" || EXPORTER_OK=false
+  done
+
+  if [ "$EXPORTER_OK" = true ]; then
+    run_tar tar -czf "$BACKUP_DIR/$DATE/exporter-tokens.tar.gz" \
+      "${SOURCE_PATHS[tado]}/" \
+      "${SOURCE_PATHS[midea]}/" \
+      "${SOURCE_PATHS[netatmo]}/"
+    if [ $? -ne 0 ]; then
+      fail "Exporter tokens failed"
+    elif assert_archive "Exporter tokens" "$BACKUP_DIR/$DATE/exporter-tokens.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/exporter-tokens.tar.gz"
+      ok "Exporter tokens saved"
+    fi
+  fi
+fi
 
 step "Stack configs"
 CURRENT_SERVICE="stacks"
 if ! should_run "stacks"; then skipped_service "Stack configs"
 else
-  run_tar tar -czf "$BACKUP_DIR/$DATE/stacks-config.tar.gz" \
-    /home/youruser/stacks/
-  if [ $? -eq 0 ]; then
-    record_archive_size "$BACKUP_DIR/$DATE/stacks-config.tar.gz"
-    ok "Stack configs saved"
-  else
-    fail "Stack configs failed"
+  # -h dereferences symlinks: ~/stacks points into ~/homelab-infra/mnemosyne/stacks/,
+  # and GNU tar archives the link itself even with a trailing slash. Verified
+  # 2026-08-19: without -h the archive was 146 bytes containing a single entry,
+  # and had been that way undetected since the symlink was introduced. The data
+  # was never actually lost — the target is version-controlled in Gitea, which
+  # is backed up — but the documented restore path did not work.
+  if assert_source "Stack configs" "/home/youruser/stacks"; then
+    run_tar tar -czhf "$BACKUP_DIR/$DATE/stacks-config.tar.gz" \
+      /home/youruser/stacks/
+    if [ $? -ne 0 ]; then
+      fail "Stack configs failed"
+    elif assert_archive "Stack configs" "$BACKUP_DIR/$DATE/stacks-config.tar.gz"; then
+      record_archive_size "$BACKUP_DIR/$DATE/stacks-config.tar.gz"
+      ok "Stack configs saved"
+    fi
   fi
 fi
 
@@ -880,6 +1348,12 @@ DURATION=$((END_TIME - START_TIME))
   echo "# HELP backup_skipped_total Number of services skipped in the last run (no changes detected)"
   echo "# TYPE backup_skipped_total gauge"
   echo "backup_skipped_total $SKIPPED_TOTAL"
+  echo "# HELP backup_uncovered_mounts Persistent container bind mounts with no backup coverage"
+  echo "# TYPE backup_uncovered_mounts gauge"
+  echo "backup_uncovered_mounts $UNCOVERED_MOUNTS"
+  echo "# HELP backup_max_skip_days Maximum age a skip-chain reference archive may reach"
+  echo "# TYPE backup_max_skip_days gauge"
+  echo "backup_max_skip_days $MAX_SKIP_DAYS"
   # Offsite metrics are no longer emitted here — the decoupled restic service
   # owns them (restic_offsite.prom). Keeping them here would produce stale,
   # misleading values since this script no longer performs the offsite transfer.
