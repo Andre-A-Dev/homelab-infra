@@ -175,3 +175,25 @@ carousel.home {
     tls internal
     reverse_proxy carousel:5000
 }
+
+# -- Rack display ---------------------------------------------------------------------
+
+rack.home {
+    tls internal
+    reverse_proxy 172.24.0.1:9120
+}
+
+# -- Galatea ----------------------------------------------------------------------
+
+galatea.home {
+    tls internal
+
+    basic_auth {
+        {$GALATEA_BASIC_USER} {$GALATEA_BASIC_HASH}
+    }
+
+    reverse_proxy galatea:8000 {
+        header_up -Authorization
+        header_up X-Galatea-Token {env.GALATEA_API_TOKEN}
+    }
+}
