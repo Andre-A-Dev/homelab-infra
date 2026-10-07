@@ -5,15 +5,22 @@ templates:
   - '/etc/alertmanager/templates/*.tmpl'
 
 # -- Mute time intervals -------------------------------------------------------
-# Backup runs every Sunday at 04:00, takes up to ~90 minutes.
-# Nextcloud is stopped during this window → ServiceDown alert suppressed.
+# Backup runs daily at 02:00 CEST and takes ~16 min normally, ~42 min with
+# --force. Nextcloud is in maintenance mode during the DB dump and file archive
+# → ServiceDown alert suppressed for that window.
 time_intervals:
   - name: backup-window
     time_intervals:
-      - weekdays: ['sunday']
-        times:
-          - start_time: '03:45'
-            end_time: '05:30'
+      # Daily backup starts at 02:00 CEST. Nextcloud is in maintenance mode
+      # during the DB dump and file archive; a --force run took 42 minutes on
+      # 2026-08-19, so 02:00-03:30 covers the normal case with headroom.
+      # Explicit location avoids the UTC/CEST offset — without it these times
+      # are read as UTC and the window lands two hours late in summer, one in
+      # winter.
+      - times:
+          - start_time: '02:00'
+            end_time: '03:30'
+        location: 'Europe/Berlin'
 
 route:
   receiver: mnemosyne-warning
@@ -25,7 +32,7 @@ route:
   routes:
 
     # -- Nextcloud backup window ------------------------------------------------
-    # Mute ServiceDown for Nextcloud during Sunday backup window.
+    # Mute ServiceDown for Nextcloud during the nightly backup window.
     - matchers:
         - alertname = "ServiceDown"
         - instance = "https://cloud.yourdomain.dedyn.io"
