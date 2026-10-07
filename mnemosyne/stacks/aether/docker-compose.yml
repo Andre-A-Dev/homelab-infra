@@ -21,8 +21,4 @@ networks:
     external: true
   monitoring:
     external: true
-    # ⚠️ Verify the real network name on Mnemosyne and adjust if needed:
-    #     docker network ls | grep monitoring
-    # Compose prefixes networks with the project dir, so the monitoring stack's
-    # network is typically "monitoring_monitoring" or "monitoring_default".
     name: monitoring
