@@ -26,8 +26,10 @@ if [ ! -f "$ENV_FILE" ]; then
   echo "ERROR: environment file not found: $ENV_FILE" >&2
   exit 1
 fi
-# shellcheck source=/dev/null
 set -a
+# shellcheck source=/dev/null
+# The directive has to sit directly above `source` — it binds to the next
+# command, and it was previously placed above `set -a`, where it did nothing.
 source "$ENV_FILE"
 set +a
 
@@ -35,14 +37,20 @@ export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE RESTIC_CACHE_DIR
 RESTIC_OPTS=(-o "sftp.command=${RESTIC_SFTP_COMMAND}")
 
 METRICS_FILE="${RESTIC_METRICS_DIR}/restic_maintenance.prom"
-LOCK_FILE="/var/run/restic-maintenance.lock"
 
-# Share the lock namespace with the daily backup so prune never runs while a
-# backup is mid-flight against the same repo (they'd contend on the repo lock
-# anyway, but failing fast here is cleaner than a restic lock error).
+# The comment here used to claim this shared a lock namespace with the daily
+# backup. It did not — restic-offsite.sh used /var/run/restic-offsite.lock and
+# this used /var/run/restic-maintenance.lock, so the two never excluded each
+# other at all. Corrected 2026-08-20: one lock file for every process that
+# touches this repository.
+#
+# This also removes the need for Conflicts=restic-offsite.service in the unit,
+# which "resolved" an overlap by killing the running backup.
+LOCK_FILE="/var/run/restic-repo.lock"
+
 exec 201>"$LOCK_FILE"
 if ! flock -n 201; then
-  echo "ERROR: another restic-maintenance run holds the lock — exiting." >&2
+  echo "ERROR: another restic process holds the repo lock (backup still running?) — exiting." >&2
   exit 1
 fi
 
@@ -57,7 +65,8 @@ echo "[$(date '+%F %T')] restic-maintenance starting"
 
 # ── Prune ───────────────────────────────────────────────────────────────────
 echo "[$(date '+%F %T')] pruning (reclaiming space from forgotten snapshots)"
-if restic "${RESTIC_OPTS[@]}" prune >/dev/null 2>&1; then
+# stderr NOT suppressed — see restic-offsite.sh for why.
+if restic "${RESTIC_OPTS[@]}" prune >/dev/null; then
   PRUNE_OK=1
   echo "[$(date '+%F %T')] prune OK"
 else
@@ -66,12 +75,19 @@ else
 fi
 
 # ── Check (structure + rotating 10% data read) ──────────────────────────────
-# --read-data-subset=10% pulls a rotating tenth of the pack files back from the
-# Storage Box and verifies them against their hashes. Over ~10 weeks the whole
+# --read-data-subset=2% pulls a rotating fiftieth of the pack files back from
+# the Storage Box and verifies them against their hashes. Over ~1 year the whole
 # repo is verified, spreading the bandwidth cost instead of downloading
 # everything at once.
-echo "[$(date '+%F %T')] checking repository (structure + 10% data)"
-if restic "${RESTIC_OPTS[@]}" check --read-data-subset=10% >/dev/null 2>&1; then
+#
+# Reduced from 10% on 2026-08-21. At 10% the run pulled ~71 GiB in one stream
+# and died with `ssh exit status 255`, which restic reports as "repository is
+# damaged" — it is not: a structural check and a 1% data check both passed
+# cleanly. Measured: 1% = 84 packs = 7m51s, so 10% was ~80 minutes of sustained
+# load on a link that does not survive it. A check that completes beats a more
+# thorough one that always fails.
+echo "[$(date '+%F %T')] checking repository (structure + 2% data)"
+if restic "${RESTIC_OPTS[@]}" check --read-data-subset=2% >/dev/null; then
   CHECK_OK=1
   echo "[$(date '+%F %T')] check OK"
 else
