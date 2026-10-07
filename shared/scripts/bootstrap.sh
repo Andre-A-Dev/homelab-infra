@@ -141,6 +141,10 @@ fi
 # make kubectl find it (idempotent)
 BASHRC="$USER_HOME/.bashrc"
 if ! grep -q 'KUBECONFIG=' "$BASHRC"; then
+    # shellcheck disable=SC2016
+    # $HOME must stay literal: it is expanded at login by the shell reading
+    # .bashrc, not here. Expanding it now would hardcode the path of whoever
+    # ran bootstrap.sh.
     echo 'export KUBECONFIG=$HOME/.kube/config' >> "$BASHRC"
 fi
 
