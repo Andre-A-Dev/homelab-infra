@@ -1,0 +1,29 @@
+# =============================================================================
+# backup-services.timer  →  /etc/systemd/system/backup-services.timer
+# =============================================================================
+# Replaces: 0 2 * * * /usr/local/bin/backup-services.sh
+#
+# Remove the cron entry when enabling this, or the backup runs twice. The
+# script's own flock would make the second run exit immediately rather than
+# corrupt anything, but it would also produce a spurious failure every night.
+# =============================================================================
+
+[Unit]
+Description=Nightly local backup at 02:00
+Documentation=file:///home/youruser/homelab-infra/mnemosyne/scripts/backup-services.sh
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+
+# Catch up after downtime. If Mnemosyne was off at 02:00, run once it is back
+# rather than skipping a night silently — the whole point of this month's work
+# is that a backup which did not happen must not look like one that did.
+Persistent=true
+
+# No RandomizedDelaySec: restic-offsite.timer fires at 06:00 as a fallback and
+# the offsite trigger fires from this script on success. Both paths are
+# protected by the shared /var/run/restic-repo.lock, but a predictable start
+# time makes the nightly sequence easier to reason about in the journal.
+
+[Install]
+WantedBy=timers.target

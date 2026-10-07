@@ -1,0 +1,70 @@
+# =============================================================================
+# backup-services.service  →  /etc/systemd/system/backup-services.service
+# =============================================================================
+# Nightly local backup of all 17 services. Replaces the cron entry
+#   0 2 * * * /usr/local/bin/backup-services.sh
+#
+# Moved off cron on 2026-09-03 for three reasons:
+#
+#   1. Logging. cron output goes nowhere useful; the script's own
+#      /var/log/backup-services.log is a plain file that Alloy does not read.
+#      As a systemd unit the output lands in the journal, which Alloy ships to
+#      Loki — so the backup log becomes queryable in Grafana alongside the
+#      restic units, without teaching Alloy about a second source.
+#
+#   2. Unit-level metrics. ExecStopPost= runs even when ExecStart= never
+#      spawned. On 2026-08-20 three separate 203/EXEC failures went unnoticed
+#      because a script that cannot start cannot report that it did not start.
+#      restic has had this guard since; the local backup has not.
+#
+#   3. Parity. Manual runs were already being tested with systemd-run to match
+#      cron conditions. Making systemd the real path removes the difference
+#      between how it is tested and how it runs.
+# =============================================================================
+
+[Unit]
+Description=Nightly local backup of all services
+Documentation=file:///home/youruser/homelab-infra/mnemosyne/scripts/backup-services.sh
+# Pointless to start if either the source or the destination is not mounted.
+RequiresMountsFor=/mnt/backup /mnt/codex /mnt/vault
+# Containers must be up: the script execs into ghost-db, nextcloud and
+# immich-db to take database dumps.
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+
+# The script drives docker, stops and starts containers, writes to /mnt/backup
+# and /var/log, and updates the textfile collector. Deliberately NOT hardened
+# with ProtectSystem=strict like restic-offsite.service: this one legitimately
+# touches most of the filesystem, and a restrictive sandbox here would fail in
+# ways that are tedious to diagnose for no real gain. The script already runs
+# as root under cron today; this is not a privilege increase.
+ExecStart=/usr/local/bin/backup-services.sh
+
+# The "-" prefix tells systemd to ignore this command's exit status. Without
+# it a broken observer would mark a SUCCESSFUL backup as failed — which is
+# exactly what happened when restic-unit-metrics.sh was first deployed without
+# its executable bit. An observer must never be able to fail the thing it
+# observes; a silently absent observer is caught by the staleness alert on
+# backup_services_unit_last_finish_timestamp.
+ExecStopPost=-/usr/local/bin/restic-unit-metrics.sh backup_services
+
+# A full run takes ~40 minutes and moves ~73 GB. Be a good citizen: the Pi
+# also serves Nextcloud and Immich to whoever is awake.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+
+# No timeout. The 2026-08-19 --force run took 42 minutes and a slow disk or a
+# large Immich import can push that well past any figure that seems generous
+# today. A backup killed halfway leaves a truncated archive that assert_archive
+# may well accept.
+TimeoutStartSec=infinity
+
+# No Restart=. A failed backup is reported and investigated, not retried
+# blindly against whatever caused it to fail.
+
+[Install]
+WantedBy=multi-user.target
