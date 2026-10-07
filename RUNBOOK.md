@@ -61,6 +61,15 @@ cd ~/stacks/caddy && docker compose down && docker compose up -d
 
 ## Run Backup Manually
 
+The nightly run is `backup-services.service`, started by `backup-services.timer` at 02:00. To run it manually under the same conditions as the timer:
+
+```bash
+sudo systemctl start backup-services.service
+journalctl -u backup-services.service -f
+```
+
+Calling the script directly still works and is what the flags below need. The script's own `flock` prevents a second run from overlapping the timer:
+
 ```bash
 sudo /usr/local/bin/backup-services.sh
 tail -50 /var/log/backup-services.log
@@ -78,59 +87,102 @@ Force all services regardless of change detection:
 sudo /usr/local/bin/backup-services.sh --force --overwrite
 ```
 
-Skip the offsite sync for this run only (e.g. bandwidth needed elsewhere):
+Skip the offsite trigger for this run only (e.g. bandwidth needed elsewhere). The 06:00 fallback timer will still pick it up:
 
 ```bash
 sudo /usr/local/bin/backup-services.sh --no-offsite
 ```
 
+Check the timers and the last unit results:
+
+```bash
+systemctl list-timers 'backup-*' 'restic-*'
+systemctl status backup-services.service restic-offsite.service --no-pager
+```
+
 ---
 
-## Check Offsite Sync (Hetzner Storage Box)
+## Offsite Backup (restic → Hetzner Storage Box)
 
-Confirm the last offsite sync succeeded:
-
-```bash
-grep "Offsite sync" /var/log/backup-services.log | tail -5
-```
-
-Check via Prometheus metrics (non-zero exit code or an old timestamp = problem):
+Offsite runs as `restic-offsite.service`, triggered by `backup-services.sh` after a clean run, with `restic-offsite.timer` at 06:00 as fallback. All `restic` commands below need the shared config loaded first, as root:
 
 ```bash
-cat /var/lib/node_exporter/textfile_collector/backup.prom | grep offsite
+sudo -i
+set -a; source /etc/restic/restic-offsite.env; set +a
+R() { restic -o "sftp.command=${RESTIC_SFTP_COMMAND}" "$@"; }
 ```
 
-List what's currently on the remote (decrypted view through the crypt remote):
+### Check the last run
 
 ```bash
-rclone lsf hetzner-crypt:
+journalctl -u restic-offsite.service -n 30 --no-pager
+grep -v '^#' /var/lib/node_exporter/textfile_collector/restic_offsite.prom
+grep -v '^#' /var/lib/node_exporter/textfile_collector/restic_offsite_unit.prom
 ```
 
-Run the sync manually, outside the full backup script (useful after fixing a connectivity issue):
+`restic_offsite_exit_code`: `0` ok, `1` config/preflight error, `2` backup failed (no new offsite copy), `3` backup ok but `forget` failed (data safe, retention piling up). `restic_offsite_unit_success 0` means systemd saw the unit fail, including cases where the script never started.
+
+### List snapshots
 
 ```bash
-rclone sync /mnt/backup hetzner-crypt: -v
+R snapshots --tag offsite
 ```
 
-For a large first sync or any run likely to outlast the SSH session, use `tmux` rather than backgrounding with `disown` — it can be reattached to check progress instead of running blind:
+### Run an offsite backup manually
 
 ```bash
-tmux new -s offsite-sync
-rclone sync /mnt/backup hetzner-crypt: -v
-# Ctrl+B, D to detach — reattach later with: tmux attach -t offsite-sync
+systemctl start restic-offsite.service
+journalctl -u restic-offsite.service -f
 ```
 
-Verify encryption is actually active — file and directory names on the Hetzner side must look like random characters, never plaintext service names. Check via the Hetzner Robot file browser, or:
+A long first upload outlasts any SSH session -- running it as the service means it does not depend on the terminal staying open. If the service exits immediately with "another restic process holds the repo lock", a backup or the weekly maintenance is still running; check with `systemctl status restic-maintenance.service`.
+
+### Stale repository lock
+
+A restic process killed mid-run leaves a lock in the repository. `backup` keeps working, but `forget` and `prune` fail (`OffsiteRetentionFailed`). `restic-offsite.sh` already runs `restic unlock` on every run, which only removes stale locks. To clear one by hand:
 
 ```bash
-rclone lsf hetzner-sftp:mnemosyne-backup
+R list locks
+R unlock
 ```
 
-If this shows real filenames instead of ciphertext, the sync bypassed the crypt remote and went straight to `hetzner-sftp:` — stop and check `OFFSITE_REMOTE` in the script before running again.
+Never use `unlock --remove-all` while another restic process might be running.
+
+### Weekly maintenance (prune + check)
+
+```bash
+systemctl start restic-maintenance.service
+journalctl -u restic-maintenance.service -f
+grep -v '^#' /var/lib/node_exporter/textfile_collector/restic_maintenance.prom
+```
+
+Runs Sundays at 05:00. `check --read-data-subset=2%` re-reads a rotating 2% of the repository from the Storage Box. A failed check reported as "repository is damaged" after an `ssh exit status 255` is usually a dropped connection, not corruption -- re-run with `R check` (structure only) to tell the two apart.
+
+### Browse the offsite copy (non-destructive)
+
+```bash
+mkdir -p /mnt/restic-browse
+R mount /mnt/restic-browse &
+ls /mnt/restic-browse/snapshots/latest/mnt/backup/
+tar -tf /mnt/restic-browse/snapshots/latest/mnt/backup/*/nextcloud-data.tar | head
+fusermount -u /mnt/restic-browse
+```
+
+Requires `fuse3`. Nothing is written to any production path.
+
+### Pull a single file out of the repository
+
+```bash
+R dump latest /mnt/backup/<YYYY-MM-DD>/vaultwarden-db.sqlite3 > /tmp/vaultwarden-db.sqlite3
+```
+
+For a full restore after losing both Mnemosyne and the backup SSD, see **Restore from Offsite** below.
 
 ---
 
 ## Verify Backup
+
+Verification runs daily at 04:00 as the Gitea Action `backup-verify.yml`, which runs `verify-backup.sh` on Mnemosyne over SSH. Results land in `backup_verify.prom` (`BackupVerifyFailed`, `BackupVerifyStale`).
 
 Full integrity check (opens every archive, runs SQLite and MariaDB checks):
 
@@ -138,7 +190,7 @@ Full integrity check (opens every archive, runs SQLite and MariaDB checks):
 sudo /usr/local/bin/verify-backup.sh
 ```
 
-Quick check — existence and size only, skips `tar -tzf` (faster, used by cron):
+Quick check — existence and size only, skips `tar -tzf` (faster):
 
 ```bash
 sudo /usr/local/bin/verify-backup.sh --quick
@@ -155,7 +207,31 @@ Check backup health via Prometheus metrics (non-zero = problem):
 ```bash
 cat /var/lib/node_exporter/textfile_collector/backup.prom | grep -v "^#"
 cat /var/lib/node_exporter/textfile_collector/backup_verify.prom | grep -v "^#"
+cat /var/lib/node_exporter/textfile_collector/backup_services_unit.prom | grep -v "^#"
 ```
+
+---
+
+## Restore from Offsite
+
+Only needed when the local backup SSD is gone as well (theft, fire, water damage). The restic repository password must come from Vaultwarden (any client app keeps an offline copy) or the offline copy; the Storage Box SSH key is lost with the Pi, so add a new public key via the Hetzner console first.
+
+```bash
+# New drive mounted at /mnt/backup, restic installed
+sudo apt install restic -y
+sudo mkdir -p /etc/restic /root/.config/restic
+sudo cp ~/homelab-infra/mnemosyne/scripts/restic-offsite.env.example /etc/restic/restic-offsite.env
+sudo nano /etc/restic/restic-offsite.env                  # repository, user, key path
+sudo nano /root/.config/restic/password && sudo chmod 600 /root/.config/restic/password
+
+sudo -i
+set -a; source /etc/restic/restic-offsite.env; set +a
+restic -o "sftp.command=${RESTIC_SFTP_COMMAND}" snapshots --tag offsite
+# Snapshots store absolute paths: --target / writes back to /mnt/backup/<date>/
+restic -o "sftp.command=${RESTIC_SFTP_COMMAND}" restore latest --tag offsite --target /
+```
+
+Then continue with **Restore from Backup** below.
 
 ---
 
@@ -177,6 +253,13 @@ Notable per-service behavior:
   container is stopped. Maintenance mode is toggled around the restore.
 - **Calibre** — `calibre-web` is stopped during library restore to avoid
   read/write conflicts.
+- **Calibre-Web config, KOSync** — ⚠️ known issue: `restore-services.sh` still
+  extracts these into the old named volumes `calibre-web-config` and
+  `kosync-data`, but both containers have used bind mounts
+  (`/mnt/codex/calibre-web-config`, `/mnt/codex/kosync/data`) since 2026-08.
+  The restore reports success while the running service keeps its old data.
+  Until fixed, extract the archive into the bind-mount path by hand with the
+  container stopped.
 - **Stack configs** — extracted via the `~/stacks/` symlink, which overwrites
   the homelab-infra working tree.
 - **Skipped snapshots** — if a service has no archive on the selected date, the
