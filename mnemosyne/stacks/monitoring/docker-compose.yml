@@ -18,6 +18,7 @@ services:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - ./prometheus/pump-alerts.yml:/etc/prometheus/pump-alerts.yml:ro
+      - ./prometheus/backup-alerts.yml:/etc/prometheus/backup-alerts.yml
       - /mnt/codex/prometheus:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -225,7 +226,13 @@ services:
 
   # -- Meross smart plugs ---------------------------------------------------------
 
+
+  # Disabled 2026-09: the Meross devices are no longer in use. Kept here so the
+  # exporter build and its env wiring are not lost.
+  # To re-enable: drop the profiles line below and re-enable the "meross" job
+  # in prometheus.yml.
   meross-exporter:
+    profiles: ["disabled"]
     build: ./meross_exporter
     container_name: meross-exporter
     environment:
@@ -361,6 +368,8 @@ services:
 
 networks:
   monitoring:
-    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
   caddy_proxy:
     external: true
