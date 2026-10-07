@@ -135,17 +135,17 @@ function onScan(event, result) {
 }
 
 function init() {
-    let bleCfg = Shelly.getComponentConfig("ble");
-    if (!bleCfg || !bleCfg.enable) {
-        console.log("Error: Bluetooth disabled — enable it under Settings > Bluetooth");
-        return;
+    // Firmware 2.0.1 removed ble.enable from the config — Bluetooth is always
+    // on there and only sub-features remain switchable. Checking that field
+    // silently aborted this script on 2.0.1 while it kept working on 1.8.99.
+    // Start() also returns a config object there, not a boolean, so only a
+    // thrown error or isRunning() is a meaningful check.
+    if (!BLE.Scanner.isRunning()) {
+        BLE.Scanner.Start({ duration_ms: -1, active: false });
     }
     if (!BLE.Scanner.isRunning()) {
-        let ok = BLE.Scanner.Start({ duration_ms: -1, active: false });
-        if (!ok) {
-            console.log("Error: could not start BLE scanner");
-            return;
-        }
+        console.log("Error: BLE scanner did not start — check Bluetooth settings");
+        return;
     }
     BLE.Scanner.Subscribe(onScan);
     console.log("BLU H&T Gateway ready, watching", CONFIG.devices.length, "device(s)");
