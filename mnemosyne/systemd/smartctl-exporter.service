@@ -1,0 +1,27 @@
+[Unit]
+Description=Prometheus smartctl exporter (disk S.M.A.R.T. metrics)
+Documentation=https://github.com/prometheus-community/smartctl_exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/smartctl_exporter \
+  --smartctl.path=/usr/sbin/smartctl \
+  --smartctl.interval=120s \
+  --smartctl.rescan=10m \
+  --web.listen-address=172.20.0.1:9633
+Restart=on-failure
+RestartSec=10s
+
+# Hardening — root is required for raw device access, so restrict everything else
+NoNewPrivileges=true
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+
+[Install]
+WantedBy=multi-user.target
