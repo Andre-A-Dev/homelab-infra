@@ -327,23 +327,33 @@ source artwork — the same "config, not code" pattern used for Aether's
 
 The backup strategy follows the 3-2-1 rule: three copies, two media types, one offsite. The implementation is a shell script (`backup-services.sh`) with explicit steps, colored output, and a step counter — not a black box.
 
-Named Docker volumes require an Alpine container workaround to archive without stopping the service. This is documented and handled in the script rather than avoided by switching to host mounts everywhere. Understanding why it is necessary is more useful than pretending the problem does not exist.
+Every source is declared in one `SOURCE_PATHS` map, and a drift check compares that map against the bind mounts of all running containers. A mount that is neither backed up nor explicitly excluded raises an alert. Exclusions are written down with a reason next to them — including one accepted loss (Wakapi) — so "not backed up" is always a decision, never an oversight.
 
 The backup SSD is formatted as exFAT, which does not support hardlinks or symlinks. The `has_changed()` helper function and `.SKIPPED` marker files are used to skip unchanged archives and avoid re-copying data unnecessarily.
 
 Restore procedures are documented and tested. A backup that has never been restored is not a backup.
 
+**A backup that did not happen must not look like one that did**
+
+Most of the backup work in summer 2026 was not about producing archives but about making failures visible. Three incidents shaped it: a stale restic lock that blocked retention for six weeks while its error went to `/dev/null`, three `203/EXEC` failures where the script could not start and therefore could not report that it had not started, and a named-volume backup that "succeeded" every night with an 85-byte archive. The answers are structural rather than more careful scripting: every stage writes Prometheus metrics, every systemd unit additionally records its own outcome via `ExecStopPost=` (a second, independent writer that sees failures the script cannot), an archive with fewer entries than expected fails the run (and any archive under 1 KiB raises a separate alert), and the nightly backup moved from cron to a systemd timer so its output reaches the journal and Loki.
+
 **Offsite: Hetzner Storage Box, not a general-purpose cloud**
 
-The offsite copy exists to survive a scenario the local backup disk cannot: theft, fire, or any event that takes Mnemosyne and the WD My Passport out simultaneously, since both live in the same room. A Storage Box was chosen over Backblaze B2 or a consumer cloud drive for three reasons: it is billed flat per TB rather than per API call or egress, which matters for a script that re-syncs the same backup set daily; it speaks plain SFTP, so `rclone` needs no vendor SDK or OAuth flow, only an SSH key; and it is hosted in Germany/Finland, which matters for the same data-sovereignty reasoning that rules out cloud dependency elsewhere in this document.
+The offsite copy exists to survive a scenario the local backup disk cannot: theft, fire, or any event that takes Mnemosyne and the WD My Passport out simultaneously, since both live in the same room. A Storage Box was chosen over Backblaze B2 or a consumer cloud drive for three reasons: it is billed flat per TB rather than per API call or egress, which matters for a backup that runs every night; it speaks plain SFTP, so the backup tool needs no vendor SDK or OAuth flow, only an SSH key; and it is hosted in Germany/Finland, which matters for the same data-sovereignty reasoning that rules out cloud dependency elsewhere in this document.
 
-**Why `rclone crypt`, not provider-side encryption**
+**Why restic, not `rclone crypt`** *(supersedes the original rclone design)*
 
-Hetzner does not see plaintext filenames or contents. An `rclone crypt` remote sits between the plain SFTP remote and the sync target — files are encrypted locally before the SFTP upload, using a password stored in Vaultwarden rather than in the `rclone` config file itself. This means a compromised Hetzner account (or a subpoena, or a misconfigured access grant) exposes only ciphertext. The tradeoff is that the crypt password becomes a second single point of failure alongside the backup itself: lose it, and the offsite copy is unrecoverable even with full SSH access to the Storage Box. It is stored in exactly one place outside the local system, and nowhere else.
+The first offsite implementation synced `/mnt/backup` through an `rclone crypt` remote. Encryption was never the problem — client-side encryption with the provider seeing only ciphertext was the right requirement, and restic keeps it. Bandwidth was: `rclone sync` has no deduplication, so the ~73 GB Nextcloud tarball, which barely changes from night to night, was re-uploaded in full every time it was rewritten. A home uplink cannot sustain that, and a 524 GB backlog built up.
 
-**Why the offsite sync is a step inside `backup-services.sh`, not a separate script**
+restic chunks and deduplicates, so a near-identical tarball costs near-zero upload — provided the tarball itself is deterministic, which is why the large archives are now written with `tar --sort=name`. It also keeps versioned snapshots (7 daily, 4 weekly, 6 monthly) instead of a single mirror, so a corrupted local backup can no longer overwrite the only offsite copy, and it can verify the remote data itself: the weekly `restic check --read-data-subset=2%` re-reads a rotating slice of the repository from Hetzner. The tradeoff is unchanged from rclone: the repository password is a single point of failure. It is stored in Vaultwarden and in one offline copy, and nowhere else.
 
-An earlier draft of this design used a standalone `backup-offsite.sh` on its own weekly cron schedule. That was reverted in favor of one additional step inside the existing script, running with the same daily cadence as the rest of the backup. The existing script already owns retention, logging, and Prometheus metrics — duplicating that scaffolding for a second script would be exactly the kind of complexity this homelab's guiding principle warns against. `rclone sync` (not `copy`) mirrors deletions from the local retention cleanup to the offsite target automatically, so there is one retention policy, not two to keep in sync by hand.
+**Why offsite is a separate service, not a step inside `backup-services.sh`** *(supersedes the integrated-step design)*
+
+The rclone design deliberately made offsite one more step inside the existing script, to avoid duplicating retention, logging and metrics scaffolding for a second script. That reasoning held for complexity, but failed in operation: the offsite step's failures were buried in the local backup's log and exit code, and an offsite stall went unnoticed for three nights.
+
+Offsite now runs as its own oneshot unit, `restic-offsite.service`. `backup-services.sh` starts it with `systemctl start --no-block` only after a run with zero errors — a broken local backup is never shipped offsite — and `restic-offsite.timer` fires at 06:00 as a fallback for nights where the trigger was missed. The service has its own exit codes (backup failed vs. retention failed are different problems with different urgency), its own metrics and alerts, and systemd hardening the local backup cannot have. Heavy work (`prune`, `check`) runs weekly in `restic-maintenance.service`. Both restic units share one `flock` on the repository, so an overlap makes the second process exit instead of being killed mid-transfer by a `Conflicts=` directive, which is how the first version handled it.
+
+The extra scaffolding the original design wanted to avoid turned out to be the point: an offsite copy that fails silently is worse than no offsite copy, because it is trusted.
 
 ---
 
