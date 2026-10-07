@@ -1,0 +1,24 @@
+[Unit]
+Description=Rack display client (Talos front panel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=youruser
+# DRM access needs the render and video groups; no X or Wayland is involved.
+SupplementaryGroups=video render input
+WorkingDirectory=/home/youruser/homelab-infra/mnemosyne/stacks/rack-display
+Environment=RACK_DISPLAY_CONFIG=display.yml
+Environment=SDL_VIDEODRIVER=kmsdrm
+ExecStart=/usr/bin/python3 display_client.py
+Restart=always
+RestartSec=5
+
+# A runaway client must never touch Immich, Nextcloud or Prometheus.
+CPUQuota=15%
+MemoryMax=256M
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
