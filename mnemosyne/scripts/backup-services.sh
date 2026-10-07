@@ -22,7 +22,7 @@ LOG="/var/log/backup-services.log"
 # (restic-offsite.service), triggered at the end of this script on success.
 # It is NOT an inline step here — this keeps the slow, network-bound offsite
 # transfer out of the local backup's critical path and gives it independent
-# success/failure tracking. See restic-offsite.sh and SETUP.md.
+# success/failure tracking. See restic-offsite.sh and SETUP_Offsite.md.
 
 # Tracks the last successful backup timestamp per service.
 # Stored on the local filesystem (not the external SSD) so it's always available.

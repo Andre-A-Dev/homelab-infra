@@ -15,6 +15,7 @@ sudo ln -sf ~/homelab-infra/mnemosyne/scripts/restore-services.sh         /usr/l
 sudo ln -sf ~/homelab-infra/mnemosyne/scripts/verify-backup.sh            /usr/local/bin/
 sudo ln -sf ~/homelab-infra/mnemosyne/scripts/restic-offsite.sh           /usr/local/bin/
 sudo ln -sf ~/homelab-infra/mnemosyne/scripts/restic-maintenance.sh       /usr/local/bin/
+sudo ln -sf ~/homelab-infra/mnemosyne/scripts/restic-unit-metrics.sh      /usr/local/bin/
 sudo ln -sf ~/homelab-infra/mnemosyne/scripts/fan-metrics.sh              /usr/local/bin/
 sudo ln -sf ~/homelab-infra/mnemosyne/scripts/container-update-metrics.sh /usr/local/bin/
 sudo ln -sf ~/homelab-infra/mnemosyne/scripts/tailscale-metrics.sh        /usr/local/bin/
@@ -31,7 +32,9 @@ These three scripts share the same flag conventions and form a single workflow.
 ### `backup-services.sh`
 
 Nightly backup of all services to `/mnt/backup/<YYYY-MM-DD>/` (WD My Passport,
-exFAT). Run from cron at 02:00.
+exFAT). Runs as `backup-services.service`, started by `backup-services.timer`
+at 02:00 (moved from cron on 2026-09-03 — see `../systemd/backup/`). A `flock`
+on `/var/run/backup-services.lock` prevents overlapping runs.
 
 ```
 --force              Ignore change detection — back up all services
@@ -43,8 +46,14 @@ exFAT). Run from cron at 02:00.
 --retention=<days>   Override default 7-day retention
 ```
 
-Services: `vaultwarden`, `caddy`, `calibre`, `calibre-web`, `kosync`,
-`syncthing`, `aegis`, `gitea`, `nextcloud`, `grafana`, `prometheus`, `stacks`
+Services (`--only=` names): `vaultwarden`, `caddy`, `calibre`, `calibre-web`,
+`kosync`, `syncthing`, `aegis`, `gitea`, `ghost`, `nextcloud`, `immich`,
+`grafana`, `jobiris`, `gitea-runner`, `exporters`, `stacks`
+
+Not backed up by design: Prometheus, Loki, Alloy, Alertmanager, Carousel jobs,
+and Wakapi (accepted loss). All sources and exclusions are declared at the top
+of the script (`SOURCE_PATHS`, `DRIFT_IGNORE`); a drift check flags any
+container bind mount that is in neither list (`backup_uncovered_mounts`).
 
 Change detection uses `find -newer <timestamp>`. Unchanged services are skipped
 and leave a `.SKIPPED` marker pointing to the last real archive — required
@@ -52,7 +61,7 @@ because exFAT does not support hardlinks or symlinks. Nextcloud enters
 maintenance mode for the duration of its backup and is archived with
 `tar --sort=name` so the resulting tarball deduplicates cleanly across restic
 snapshots. Writes `backup.prom` on every run (including failures) so
-Alertmanager can fire if no successful backup is seen in 25 hours.
+Alertmanager can fire if no successful backup is seen in 30 hours.
 
 On a clean run (no errors), the script triggers `restic-offsite.service` via
 `systemctl start --no-block` to ship the fresh tarballs offsite. Offsite is a
@@ -74,8 +83,9 @@ Verifies the most recent backup (or `--date=YYYY-MM-DD` for a specific one).
 
 Checks: archive readability, Vaultwarden SQLite `PRAGMA integrity_check`,
 Nextcloud MariaDB dump header, disk usage on `/mnt/backup` and `/mnt/codex`.
-Follows `.SKIPPED` markers to older snapshots. `--quick` is used in the
-automated post-backup cron run. Writes `backup_verify.prom`.
+Follows `.SKIPPED` markers to older snapshots. Runs daily at 04:00 as the
+Gitea Action `backup-verify.yml`, which calls the script on Mnemosyne over SSH.
+Writes `backup_verify.prom`.
 
 ### `restore-services.sh`
 
@@ -101,27 +111,45 @@ must exist as a backed-up copy in Vaultwarden **and** offline before first use �
 lose it and the offsite repo is unrecoverable.
 
 Both scripts read the shared env file and use an explicit `sftp.command` with a
-spelled-out key path and host, because root's cron context does not read
-`~/.ssh/config` (the same trap that once broke the rclone offsite step).
+spelled-out key path and host, because the root-owned systemd units do not
+read `~/.ssh/config` (the same trap that once broke the old rclone offsite
+step). Both also `flock` the same `/var/run/restic-repo.lock`, so backup and
+maintenance can never run against the repository at the same time — the loser
+exits immediately instead of being killed mid-transfer.
 
 ### `restic-offsite.sh`
 
-Daily offsite backup: `restic backup` + `restic forget` (retention, no prune).
+Daily offsite backup: `restic unlock` (stale locks only) + `restic backup` +
+`restic forget` (7 daily / 4 weekly / 6 monthly, no prune).
 Runs as the `restic-offsite.service` oneshot, triggered by `backup-services.sh`
 on success, with `restic-offsite.timer` as a 06:00 fallback. Writes
 `restic_offsite.prom` (last-success timestamp, exit code, duration, bytes
-actually uploaded post-dedup, snapshot count). Prune is deliberately excluded —
+actually uploaded post-dedup, snapshot count). Exit codes: `1` preflight error,
+`2` backup failed, `3` backup ok but `forget` failed. Prune is deliberately excluded —
 it is heavy on the Pi and belongs in the weekly maintenance run, not the nightly
 path.
 
 ### `restic-maintenance.sh`
 
 Weekly heavy maintenance: `restic prune` (reclaim space) + `restic check
---read-data-subset=10%` (structure plus a rotating tenth of the pack files
-pulled back from the Storage Box to catch silent bitrot). Runs as
+--read-data-subset=2%` (structure plus a rotating 2% of the pack files pulled
+back from the Storage Box to catch silent bitrot; the whole repository is
+re-read over roughly a year). Reduced from 10% on 2026-08-21 — a 10% read
+pulled ~71 GiB in one stream and reliably dropped the SSH connection. Runs as
 `restic-maintenance.service`, driven by `restic-maintenance.timer` on Sundays at
-05:00. Conflicts with `restic-offsite.service` so prune never runs against a
-repo mid-backup. Writes `restic_maintenance.prom`.
+05:00. Writes `restic_maintenance.prom`.
+
+### `restic-unit-metrics.sh`
+
+Records the **unit-level** outcome of a service as systemd sees it, called via
+`ExecStopPost=` from `backup-services.service`, `restic-offsite.service` and
+`restic-maintenance.service`. Writes a separate `<prefix>_unit.prom`
+(`*_unit_success`, `*_unit_exit_status`, `*_unit_result`,
+`*_unit_last_finish_timestamp`). It exists because a script that reports its
+own health cannot report that it never started: on 2026-08-20 three `203/EXEC`
+failures went unnoticed while the script's own metrics still showed a
+six-week-old success. In `backup-services.service` the call is prefixed with
+`-`, so a broken observer can never mark a successful backup as failed.
 
 ### Restore
 
@@ -129,8 +157,9 @@ restic makes restore-testing non-destructive: `restic mount` exposes the repo
 read-only as a filesystem, so archive integrity can be verified
 (`tar -tf .../nextcloud-data.tar`) without writing to any production path.
 `restic dump <snapshot> <file>` streams a single file straight out of the repo —
-e.g. piping a DB dump directly into `mariadb` with no local staging. Full setup,
-init, and restore procedures are in `restic-setup/SETUP.md`.
+e.g. piping a DB dump directly into `mariadb` with no local staging. Full setup
+and init procedure: [`SETUP_Offsite.md`](SETUP_Offsite.md). Disaster restore from
+the offsite copy: `wiki/Backup-Strategy.md` → *Offsite restore*.
 
 ---
 
@@ -182,22 +211,28 @@ webhook — not run manually.
 
 ---
 
-## Crontab reference
+## Scheduling reference
+
+| Job | Schedule | Mechanism |
+|---|---|---|
+| `backup-services.sh` | Daily 02:00 | `backup-services.timer` (`../systemd/backup/`) |
+| `restic-offsite.sh` | After a clean backup; fallback daily 06:00 | Triggered by `backup-services.sh`; `restic-offsite.timer` |
+| `verify-backup.sh` | Daily 04:00 | Gitea Action `backup-verify.yml` (over SSH) |
+| `restic-maintenance.sh` | Sundays 05:00 | `restic-maintenance.timer` |
+| `fan-metrics.sh` | Every 30 s | `fan-metrics.timer` |
+| `container-update-metrics.sh` | Daily | `container-update-metrics.timer` |
+| `tailscale-metrics.sh` | Every 5 min | root cron |
+
+```bash
+systemctl list-timers 'backup-*' 'restic-*' 'fan-*' 'container-*'
+```
+
+The only remaining cron entry:
 
 ```cron
-# Nightly backup at 02:00
-0 2 * * * root /usr/local/bin/backup-services.sh >> /var/log/backup-services.log 2>&1
-
-# Verify backup at 03:00 (after backup completes)
-0 3 * * * root /usr/local/bin/verify-backup.sh --quick >> /var/log/backup-services.log 2>&1
-
-# Tailscale metrics every 5 minutes
 */5 * * * * root /usr/local/bin/tailscale-metrics.sh
 ```
 
-Fan and container-update metrics are handled by systemd timers in
-`../systemd/` rather than cron. Offsite backup and maintenance also run via
-systemd timers, not cron: `restic-offsite.timer` (daily 06:00 fallback — the
-primary trigger is `backup-services.sh` on success) and
-`restic-maintenance.timer` (Sundays 05:00). Check them with
-`systemctl list-timers | grep restic`.
+When enabling `backup-services.timer` on a host that still has the old
+`0 2 * * * … backup-services.sh` cron line, remove that line — otherwise the
+second run hits the lock and reports a spurious failure every night.

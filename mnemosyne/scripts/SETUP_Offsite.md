@@ -1,9 +1,15 @@
 # restic Offsite — One-Time Setup & Deployment
 
-> **Do not run any of this until the current 524 GB rclone backlog has
-> finished and you have validated the local tarball restore (KOSync test).**
-> Switching offsite formats mid-backlog, before proving the local restore
-> works, is the wrong order. This document is the plan for *after* that.
+> **Status: deployed.** restic is the live offsite backup; the rclone remote
+> `hetzner-crypt:` has been purged. This document is now the reference for
+> setting the offsite backup up **from scratch** — on a new Mnemosyne, or after
+> losing the repository. For day-to-day operation see `RUNBOOK.md` → *Offsite
+> Backup*; for a disaster restore see `wiki/Backup-Strategy.md` → *Offsite
+> restore*.
+>
+> Original precondition, kept for context: the cutover only happened after the
+> 524 GB rclone backlog had finished and the local tarball restore had been
+> validated (KOSync test).
 
 ---
 
