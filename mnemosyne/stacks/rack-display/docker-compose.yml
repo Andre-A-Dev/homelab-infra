@@ -1,0 +1,32 @@
+services:
+  rack-display-collector:
+    build: ./collector
+    container_name: rack-display-collector
+    restart: unless-stopped
+    # Bound to loopback: the client runs on this host, nothing else needs it.
+    ports:
+      - "127.0.0.1:9119:9119"
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      ALERTMANAGER_URL: http://alertmanager:9093
+      HOSTS_FILE: /app/hosts.yml
+      SMART_EXPECTED_DEVICES: "3"
+      REFRESH_SECONDS: "15"
+      TZ: Europe/Berlin
+    volumes:
+      - ./hosts.yml:/app/hosts.yml:ro
+    networks:
+      - monitoring
+      - caddy_proxy
+    mem_limit: 256m
+
+networks:
+  # Reachable from the LAN through Caddy only — internal .home name, never
+  # published outside. The panel names every host and every firing alert.
+  caddy_proxy:
+    external: true
+    name: caddy_proxy
+
+  monitoring:
+    external: true
+    name: monitoring

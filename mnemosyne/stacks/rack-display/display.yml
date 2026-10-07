@@ -1,0 +1,128 @@
+# rack-display — client configuration
+# Target panel: DeskPi DP-0059, 7.84", 1280x400, capacitive touch, driven by Mnemosyne.
+
+display:
+  width: 1280
+  height: 400
+  # "kmsdrm" on Mnemosyne, "window" for dry-running on a desktop.
+  backend: kmsdrm
+  fps: 20
+
+source:
+  # The renderer container. Use a file:// URL to dry-run against a mock.
+  state_url: http://127.0.0.1:9119/state.json
+  poll_interval: 5s
+  # No successful poll within this window -> the ALERT state takes over.
+  stale_after: 60s
+
+timeouts:
+  dashboard: 60s      # DASHBOARD -> IDLE after the last touch
+  idle: 15m           # IDLE -> DIM. Set to 0 to keep IDLE running forever.
+
+blank:
+  # dim            a single low-brightness dot, drifting. Proves the host is alive.
+  # black          fully black. Ambiguous with a dead host — see never_when below.
+  # backlight_off  DPMS off. VERIFY THIS WORKS AND WAKES CLEANLY BEFORE RELYING ON IT.
+  mode: dim
+  brightness: 0.06
+  drift: true
+  # States in which the display must never blank, whatever the idle timeout says.
+  never_when: [warning, critical, stale]
+
+wake:
+  on_touch: dashboard
+  on_alert: immediate
+
+burn_in:
+  # Slow positional drift of every locally rendered composition.
+  drift_px: 20
+  cycle: 10m
+
+heartbeat:
+  # Consumed by the node_exporter textfile collector, so a dead client is
+  # distinguishable from a dark room. Pair this with an alert rule.
+  path: /var/lib/node_exporter/textfile_collector/rack_display.prom
+  interval: 30s
+
+input:
+  # One physical tap arrives twice (event device + mouse emulation). Ignore a
+  # second event inside this window.
+  debounce: 350ms
+  # Horizontal travel that separates a swipe from a tap.
+  swipe_px: 80
+  # Bind by stable id, never by event index — the powered hub re-enumerates
+  # when the disks spin up and event numbers shift.
+  device: /dev/input/rack-touch
+  reopen_on_loss: true
+
+theme:
+  # Talos was a bronze automaton. Warm metal on cool graphite; bronze is the
+  # only loud note in the layout and it belongs to the wordmark alone.
+  bg: "#14161A"
+  surface: "#1C1F24"
+  hairline: "#2A2E35"
+  text: "#E6E8EA"
+  muted: "#868D96"
+  bronze: "#C08A3E"
+  ok: "#4E9A6A"
+  warning: "#E0A32E"
+  critical: "#E04F4F"
+
+typography:
+  # IBM Plex was drawn for technical contexts and Plex Mono has proper tabular
+  # figures — numbers must not reflow the layout on every refresh.
+  sans: IBM Plex Sans
+  mono: IBM Plex Mono
+  sizes:
+    wordmark: 96
+    host: 24
+    metric: 22
+    alert_title: 30
+    alert_body: 20
+    small: 18
+
+# Pages the client cycles through on touch, in order. Past the last one a
+# further touch returns to IDLE. Must exist in the renderer — check /pages.
+pages:
+  - overview      # is anything wrong right now
+  - alerts        # and since when — the natural follow-up to overview
+  - backup        # changes daily, highest stakes
+  - containers    # the fleet at a glance
+  - network       # largely static between resyncs
+  - pihole        # least to say day to day
+  - prusa         # one swipe back from overview, where you land when printing
+
+alert:
+  # How long the full-bleed takeover stays before collapsing to a band at the
+  # bottom. Touch collapses it immediately. 0 keeps it full-bleed forever —
+  # only sensible on a display you do not mind burning in.
+  takeover: 10m
+
+mirror:
+  # Browser view of the real panel, including IDLE, DIM and the takeover.
+  # Snapshots are only taken while a page is open, so this idles at zero cost.
+  enabled: true
+  port: 9120
+  # 0.0.0.0 so Caddy can reach it from its container. This port is then open
+  # on the LAN without TLS — put it behind Caddy and do not forward it.
+  bind: 0.0.0.0
+  min_interval: 1s
+
+boot:
+  # How long "no data yet" counts as starting up rather than as a fault.
+  # Only applies before the first successful poll; once data has arrived,
+  # losing it is an alert immediately. 0 disables the splash entirely.
+  grace: 90s
+  # How long the mirror's boot preview runs. The full grace window is
+  # compressed into this, so the accent shift is visible.
+  preview: 30s
+
+animation:
+  # Slide carries direction between pages; the crossfade is for entering the
+  # dashboard, where there is no direction to convey. Alerts are never
+  # animated — a takeover that glides in arrives late and looks decorative.
+  enabled: true
+  slide: 220ms
+  fade: 180ms
+  ring: 250ms
+  pager: 1.5s
