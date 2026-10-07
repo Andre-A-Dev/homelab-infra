@@ -18,7 +18,7 @@ import os
 import sqlite3
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -244,6 +244,29 @@ def prune_excess_entries(conn: sqlite3.Connection, max_entries: int = MAX_ENTRIE
     return excess
 
 
+ARCHIVE_STATUS = "Archiviert"
+
+
+def auto_archive(conn: sqlite3.Connection, config: dict, dry_run: bool) -> int:
+    """Move untouched jobs (status 'Neu') older than auto_archive.after_days
+    (by first_seen) to 'Archiviert'. Jobs the user already triaged are never
+    touched. Returns the number of affected rows (would-be count on dry runs)."""
+    days = (config.get("auto_archive") or {}).get("after_days")
+    if not days:
+        return 0
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=int(days))).isoformat()
+    if dry_run:
+        return conn.execute(
+            "SELECT COUNT(*) FROM seen_jobs WHERE status = 'Neu' AND first_seen < ?", (cutoff,)
+        ).fetchone()[0]
+    cur = conn.execute(
+        "UPDATE seen_jobs SET status = ?, status_changed_at = ? WHERE status = 'Neu' AND first_seen < ?",
+        (ARCHIVE_STATUS, datetime.now(timezone.utc).isoformat(), cutoff),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
 # --------------------------------------------------------------------------- #
 # Bundesagentur Jobsuche API
 # --------------------------------------------------------------------------- #
@@ -462,6 +485,7 @@ def write_last_run_status(
     total_new: int,
     total_errors: int,
     dry_run: bool,
+    total_archived: int = 0,
 ) -> None:
     """Write a small JSON status file read by the board to display last-run info."""
     status_path = DEFAULT_DB.parent / "last_run.json"
@@ -472,6 +496,7 @@ def write_last_run_status(
         "total_new": total_new,
         "total_errors": total_errors,
         "dry_run": dry_run,
+        "total_archived": total_archived,
     }
     try:
         status_path.write_text(_json.dumps(payload, indent=2), encoding="utf-8")
@@ -501,6 +526,7 @@ def run(config: dict, conn: sqlite3.Connection, schedule: str, dry_run: bool) ->
     log.info("Starting JobIris run (schedule=%s, %d profile(s))", schedule, len(profiles_to_run))
 
     new_jobs_by_profile = {}
+    seen_this_run: set[str] = set()   # dedup within one run (needed for dry runs, no DB writes)
     total_checked = 0
     total_errors = 0
 
@@ -528,8 +554,9 @@ def run(config: dict, conn: sqlite3.Connection, schedule: str, dry_run: bool) ->
                             home_lat=home_lat,
                             home_lon=home_lon,
                         )
-                        if is_known(conn, job["refnr"]):
+                        if job["refnr"] in seen_this_run or is_known(conn, job["refnr"]):
                             continue
+                        seen_this_run.add(job["refnr"])
                         job["_tag"] = tag
 
                         # Employer ignore: check arbeitgeber against ignore_emp_terms
@@ -594,6 +621,12 @@ def run(config: dict, conn: sqlite3.Connection, schedule: str, dry_run: bool) ->
         len(profiles_to_run), total_checked, total_new, total_errors,
     )
 
+    archived = auto_archive(conn, config, dry_run)
+    if archived:
+        days = config["auto_archive"]["after_days"]
+        log.info("%s %d untouched job(s) older than %d days.",
+                 "Would archive" if dry_run else "Archived", archived, days)
+
     if dry_run:
         log.info("Dry run - skipping notification and database writes.")
         return
@@ -604,7 +637,7 @@ def run(config: dict, conn: sqlite3.Connection, schedule: str, dry_run: bool) ->
     if pruned:
         log.info("Pruned %d oldest entr%s (keeping %d most recent).", pruned, "y" if pruned == 1 else "ies", MAX_ENTRIES)
 
-    write_last_run_status(schedule, total_checked, total_new, total_errors, dry_run)
+    write_last_run_status(schedule, total_checked, total_new, total_errors, dry_run, archived)
     log.info("JobIris run finished.")
 
 
