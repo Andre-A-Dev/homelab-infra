@@ -13,12 +13,12 @@
 #   Install: sudo apt install skopeo
 #
 # Usage:
-#   check-container-updates.sh            # check all running containers
-#   check-container-updates.sh --quiet    # show only containers with updates
+#   check-container-updates            # check all running containers
+#   check-container-updates --quiet    # show only containers with updates
 #
-# Installation:
-#   sudo ln -s ~/homelab-infra/mnemosyne/scripts/check-container-updates.sh \
-#              /usr/local/bin/check-container-updates.sh
+# Installation (run on Mnemosyne):
+#   sudo ln -sf ~/homelab-infra/shared/scripts/check-container-updates.sh \
+#               /usr/local/bin/check-container-updates
 # =============================================================================
 
 set -uo pipefail
@@ -44,7 +44,9 @@ COUNT_UPDATE=0
 COUNT_SKIP=0
 
 # Associative array: container name → compose working dir
-declare -A UPDATES_MAP
+# Must be initialized with =() — a bare declare leaves it unset, and
+# ${#UPDATES_MAP[@]} then trips set -u when no updates were found.
+declare -A UPDATES_MAP=()
 
 # --- Column widths (pure ASCII — avoids printf width miscounting) -------------
 COL_NAME=26
@@ -180,14 +182,17 @@ check_container() {
     if ! remote_digest=$(get_remote_digest "$image") || [[ -z "$remote_digest" ]]; then
         # skopeo failed — distinguish local build from genuine registry error.
         #
-        # Local Compose builds have image names with no slash and no colon:
-        #   monitoring-meross-exporter  ← local (compose-generated, no registry)
-        #   ghostproxy-ghostproxy       ← local
+        # Local builds can still have RepoDigests (e.g. containerd image store),
+        # so they reach this point. They have no registry namespace (no slash),
+        # with or without an explicit tag:
+        #   monitoring-meross-exporter  ← compose-generated name
+        #   carousel:latest             ← explicit image: tag on a build
         #
-        # Real registry images always have a colon (tag) or slash (namespace):
-        #   caddy:latest                ← Docker Hub official
-        #   pdreker/fritz_exporter:latest ← Docker Hub namespaced
-        if [[ "$image" != */* && "$image" != *:* ]]; then
+        # Unqualified names that DO exist upstream (caddy:latest, redis:6-alpine)
+        # resolve to Docker Hub library images and succeed above, so a failure
+        # here means "not in any registry". Namespaced images that fail
+        # (pdreker/fritz_exporter:latest) are genuine registry errors.
+        if [[ "$image" != */* ]]; then
             $QUIET || print_row "$name" "$image" "local build" "$DIM" "  "
         else
             $QUIET || print_row "$name" "$image" "registry error" "$RED" "! "
@@ -262,17 +267,15 @@ print_footer() {
             printf "  ${YELLOW}^${NC}  ${BOLD}%s${NC}\n" "$container"
 
             if [[ -n "$workdir" && -n "$service" ]]; then
-                # Full one-liner: cd → pull → up → prune
+                # Full one-liner: cd → pull → up (prune once at the end)
                 printf "     ${DIM}cd %s \\\\\n" "$workdir"
                 printf "       && docker compose pull %s \\\\\n" "$service"
-                printf "       && docker compose up -d %s \\\\\n" "$service"
-                printf "       && docker image prune -f${NC}\n"
+                printf "       && docker compose up -d %s${NC}\n" "$service"
             elif [[ -n "$workdir" ]]; then
                 # Compose-managed but service label missing — generic fallback
                 printf "     ${DIM}cd %s \\\\\n" "$workdir"
                 printf "       && docker compose pull \\\\\n"
-                printf "       && docker compose up -d \\\\\n"
-                printf "       && docker image prune -f${NC}\n"
+                printf "       && docker compose up -d${NC}\n"
             else
                 # Not Compose-managed — no automated update path
                 printf "     ${DIM}(not managed by Compose — update manually)${NC}\n"
