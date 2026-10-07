@@ -77,7 +77,10 @@ All scripts write atomically: output goes to a `.tmp` file first, then `mv` repl
 | Pi 5 fan level + CPU temp | `fan-metrics.sh` | systemd timer | `fan.prom` | 30s |
 | Tailscale status | `tailscale-metrics.sh` | cron | `tailscale.prom` | -- |
 | Container image update status | `container-update-metrics.sh` | systemd timer | `container_updates.prom` | 24h |
-| Backup results | `backup-services.sh` | cron (daily 02:00) | `backup.prom` | daily |
+| Backup results | `backup-services.sh` | systemd timer (daily 02:00) | `backup.prom` | daily |
+| Offsite backup | `restic-offsite.sh` | after backup + 06:00 fallback timer | `restic_offsite.prom` | daily |
+| Offsite maintenance | `restic-maintenance.sh` | systemd timer (Sun 05:00) | `restic_maintenance.prom` | weekly |
+| Unit outcomes | `restic-unit-metrics.sh` | `ExecStopPost=` of the backup units | `*_unit.prom` | per run |
 | Viessmann heating | `viessmann-exporter.sh` (Hephaestus) | cron (every minute) | `viessmann.prom` | 60s |
 
 ### Container update metrics
