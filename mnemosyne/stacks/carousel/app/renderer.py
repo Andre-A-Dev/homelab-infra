@@ -8,14 +8,14 @@ one page, in which case CSS forces a clean break.
 The title slide is special-cased: its text is word-wrapped and its font
 size is computed by actually measuring the title against the real font
 file (Pillow), so it fills the available panel — both width and height —
-regardless of title length, the same way the original hand-tuned
-PowerPoint titles did.
+regardless of title length. The title never spills onto a second slide.
 
 Markdown conventions:
   # Title            -> title slide (no page number)
   ## TW: <topic>     -> trigger title slide, following text on trigger pages
   ## ENDE TW         -> back to normal pages
-  blank line         -> paragraph break; inline formatting: see _inline()
+  ---                -> force the next paragraph onto a new slide
+  blank line         -> paragraph break; inline formatting: see Formatter
 """
 
 import html
@@ -24,32 +24,54 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, Optional
 
-from PIL import ImageFont
+from PIL import Image, ImageFont
 from weasyprint import HTML
 
 PAGE_W, PAGE_H = 1080, 1440
 MAX_SLIDES = 20  # Instagram carousel limit
 
 # Absolute floor so a pathologically long title still produces something
-# legible-ish rather than shrinking towards zero. This is a hard technical
-# floor, not the "soft" title_min_size from template.json — see
-# _fit_title_layout().
+# legible-ish rather than shrinking towards zero.
 TITLE_HARD_MIN_SIZE = 24
+TITLE_LINE_HEIGHT = 1.15  # keep in sync with the h1 CSS below
 
 TW_START = re.compile(r"^##\s*TW\s*:?\s*(.*)$", re.IGNORECASE)
 TW_END = re.compile(r"^##\s*ENDE\s+TW\s*$", re.IGNORECASE)
 TITLE = re.compile(r"^#\s+(.*)$")
+PAGE_BREAK = re.compile(r"^\s*-{3,}\s*$")
 
-# Strip markdown delimiters for width measurement only (display still uses
-# the fully-formatted version via _inline()). Approximate: a bold/italic
-# run measures very close to the plain glyph width at this stage, and any
-# small residual error is absorbed by BOLD_WIDTH_SAFETY above.
+# Color highlight: {name:text}, name defined per template in "highlights".
+HIGHLIGHT = re.compile(r"\{([A-Za-zÄÖÜäöüß]+)\s*:\s*(.+?)\}")
+HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+# Emphasis delimiters, removed for width measurement only.
 _MD_STRIP = re.compile(r"\*\*\*|\*\*|\*|__|~~")
+
+
+def _plain(text: str) -> str:
+    """Visible text of a formatted line: markup removed exactly the way
+    Formatter consumes it, so word boundaries line up with the HTML."""
+    return _MD_STRIP.sub("", HIGHLIGHT.sub(r"\2", text))
+
+# progress(stage_label, percent, detail)
+ProgressFn = Callable[[str, int, str], None]
 
 
 class ParseError(ValueError):
     pass
+
+
+@dataclass
+class RenderOptions:
+    hyphenate: bool = False  # off by default: words move whole to the next line
+
+
+@dataclass
+class Paragraph:
+    text: str
+    break_before: bool = False  # set by a preceding '---' line
 
 
 @dataclass
@@ -72,11 +94,14 @@ def parse_markdown(text: str) -> Post:
     sections: list[Section] = []
     current = Section("normal")
     buf: list[str] = []
+    pending_break = False
 
     def flush():
+        nonlocal pending_break
         para = " ".join(s.strip() for s in buf).strip()
         if para:
-            current.paragraphs.append(para)
+            current.paragraphs.append(Paragraph(para, break_before=pending_break))
+            pending_break = False
         buf.clear()
 
     def push_section():
@@ -94,12 +119,21 @@ def parse_markdown(text: str) -> Post:
             flush()
             push_section()
             current = Section("normal")
+            pending_break = False  # a new section starts on a new slide anyway
             continue
         m = TW_START.match(line.strip())
         if m:
             flush()
             push_section()
             current = Section("trigger", tw_topic=m.group(1).strip())
+            pending_break = False
+            continue
+        if PAGE_BREAK.match(line):
+            flush()
+            # Only meaningful once there is body text; a '---' directly
+            # after the title is a no-op because the text starts on a
+            # new slide regardless.
+            pending_break = title is not None
             continue
         if line.strip() == "":
             flush()
@@ -119,41 +153,106 @@ def parse_markdown(text: str) -> Post:
     return Post(title=title, sections=sections)
 
 
-def _inline(text: str) -> str:
-    """Escape HTML, then apply a small fixed set of inline markup.
+class Formatter:
+    """Inline markup -> HTML for one template.
 
-    Supported, in this order (longest/most specific marker first so
-    overlapping markers can't misparse each other):
+    Supported (longest/most specific marker first so overlapping markers
+    can't misparse each other):
+      {name:text} -> color highlight, name from template "highlights"
       ***text***  -> bold + italic
       **text**    -> bold
       *text*      -> italic
       __text__    -> underline
       ~~text~~    -> strikethrough
+
+    Unknown color names render the text uncolored (never literal braces)
+    and are collected in `unknown_colors` for a warning.
     """
-    t = html.escape(text)
-    t = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", t)
-    t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
-    t = re.sub(r"\*(.+?)\*", r"<em>\1</em>", t)
-    t = re.sub(r"__(.+?)__", r"<u>\1</u>", t)
-    t = re.sub(r"~~(.+?)~~", r"<s>\1</s>", t)
-    return t
+
+    def __init__(self, highlights: dict):
+        self.highlights = {
+            name.lower(): color for name, color in (highlights or {}).items()
+            if HEX_COLOR.match(color or "")
+        }
+        self.unknown_colors: set[str] = set()
+
+    def _color(self, m: re.Match) -> str:
+        name, inner = m.group(1).lower(), m.group(2)
+        color = self.highlights.get(name)
+        if color is None:
+            self.unknown_colors.add(m.group(1))
+            return inner
+        return f'<span style="color:{color}">{inner}</span>'
+
+    def __call__(self, text: str) -> str:
+        t = html.escape(text)
+        t = HIGHLIGHT.sub(self._color, t)
+        t = re.sub(r"\*\*\*(.+?)\*\*\*", r"<strong><em>\1</em></strong>", t)
+        t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+        t = re.sub(r"\*(.+?)\*", r"<em>\1</em>", t)
+        t = re.sub(r"__(.+?)__", r"<u>\1</u>", t)
+        t = re.sub(r"~~(.+?)~~", r"<s>\1</s>", t)
+        return t
 
 
-TITLE_LINE_HEIGHT = 1.15  # keep in sync with the h1 CSS below
+def _break_lines(formatted: str, counts: list[int]) -> str:
+    """Insert <br> into already-formatted HTML after the given word counts.
+
+    Formatting is applied to the whole title first and line breaks are
+    placed afterwards, so markup spanning a line break (e.g. a bold or
+    colored phrase across two lines) stays intact. Words are counted in
+    text nodes only, never inside tags.
+    """
+    break_after = set()
+    total = 0
+    for n in counts[:-1]:
+        total += n
+        break_after.add(total)
+
+    out, words_seen, in_word = [], 0, False
+    for part in re.split(r"(<[^>]+>)", formatted):
+        if part.startswith("<"):
+            out.append(part)
+            continue
+        for tok in re.split(r"(\s+)", part):
+            if not tok:
+                continue
+            if tok.isspace():
+                if in_word and words_seen in break_after:
+                    out.append("<br>")
+                else:
+                    out.append(tok)
+                in_word = False
+            else:
+                if not in_word:
+                    words_seen += 1
+                    in_word = True
+                out.append(tok)
+    return "".join(out)
 
 
-def _measure_width(text: str, font_path: Path, size: int) -> float:
+def _title_font(font_path: Path, size: int) -> "ImageFont.FreeTypeFont":
+    """Title font as WeasyPrint renders it: the h1 is bold, and for a
+    variable font WeasyPrint uses the real wght=700 instance, which is up
+    to ~2.5 % wider than the default (regular) instance Pillow loads.
+    Static fonts keep their regular outlines; the 4 % fit margin in
+    _title_layout covers synthetic bold there.
+    """
     font = ImageFont.truetype(str(font_path), size)
-    return font.getlength(text)
+    try:
+        axes = font.get_variation_axes()
+    except OSError:  # not a variable font
+        return font
+    values = []
+    for axis in axes:
+        name = axis["name"].decode() if isinstance(axis["name"], bytes) else str(axis["name"])
+        values.append(min(700, axis["maximum"]) if name.lower() == "weight" else axis["default"])
+    font.set_variation_by_axes(values)
+    return font
 
 
 def _greedy_wrap_counts(words: list[str], font: "ImageFont.FreeTypeFont", max_width: float) -> list[int]:
-    """Greedy word-wrap: how many of `words` fit on each line at this
-    font, given max_width. Returns a list of word-counts, one per line.
-    A single word wider than max_width still gets its own line (can't
-    split a word) — that line will simply overrun, same as a hard-floor
-    overflow elsewhere in this module.
-    """
+    """Greedy word-wrap: number of words per line at this font size."""
     space_w = font.getlength(" ")
     counts: list[int] = []
     current_n = 0
@@ -173,43 +272,26 @@ def _greedy_wrap_counts(words: list[str], font: "ImageFont.FreeTypeFont", max_wi
 
 
 def _fit_title_layout(title: str, font_path: Path, max_width: float, max_height: float) -> dict:
-    """Find the largest font size at which `title` — word-wrapped as
-    needed — fills the panel: total block height <= max_height, every
-    line's width <= max_width. Scans font sizes from a generous upper
-    bound down to TITLE_HARD_MIN_SIZE and takes the first (= largest)
-    size that fits, then wraps the actual (formatted) words accordingly.
+    """Largest font size at which the word-wrapped title fits the panel.
 
-    Returns {size, lines, hit_floor}. `lines` are already HTML-inline-
-    formatted strings ready to join with <br>. hit_floor=True means even
-    the minimum legible size doesn't fully fit (rendered text may
-    slightly overrun) — surfaced to the caller as a warning.
+    Scans font sizes top-down; a size is accepted only if the total block
+    height fits AND every resulting line fits the width (a single long
+    word alone on a line is otherwise never width-checked).
+    Returns {size, counts, hit_floor}; counts = words per line.
     """
-    words = title.split()
-    plain_words = (_MD_STRIP.sub("", title)).split()
-    if len(plain_words) != len(words):
-        # Extremely unlikely (markdown stripping can't change whitespace),
-        # but fall back to the unformatted words rather than risk a
-        # misaligned line/word mapping.
-        plain_words = words
+    plain_words = _plain(title).split()
 
     upper_bound = max(TITLE_HARD_MIN_SIZE, round(max_height / TITLE_LINE_HEIGHT) + 10)
     chosen_size = TITLE_HARD_MIN_SIZE
     chosen_counts = None
     for size in range(upper_bound, TITLE_HARD_MIN_SIZE - 1, -1):
-        font = ImageFont.truetype(str(font_path), size)
+        font = _title_font(font_path, size)
         counts = _greedy_wrap_counts(plain_words, font, max_width)
-        n_lines = len(counts)
-        if n_lines * size * TITLE_LINE_HEIGHT > max_height:
+        if len(counts) * size * TITLE_LINE_HEIGHT > max_height:
             continue
-        # _greedy_wrap_counts only enforces max_width while *adding a
-        # second-or-later word* to a line; a single word forced onto an
-        # otherwise-empty line (typical for short titles, or one long
-        # word) is never checked against max_width. Verify explicitly.
-        idx = 0
-        widest = 0.0
+        idx, widest = 0, 0.0
         for n in counts:
-            line = " ".join(plain_words[idx : idx + n])
-            widest = max(widest, font.getlength(line))
+            widest = max(widest, font.getlength(" ".join(plain_words[idx : idx + n])))
             idx += n
         if widest <= max_width:
             chosen_size, chosen_counts = size, counts
@@ -217,79 +299,140 @@ def _fit_title_layout(title: str, font_path: Path, max_width: float, max_height:
 
     hit_floor = chosen_counts is None
     if chosen_counts is None:
-        # Nothing in the whole scanned range fit height-wise even at the
-        # floor size; wrap at the floor size anyway so we still have
-        # something sane to render (it will slightly overrun).
-        font = ImageFont.truetype(str(font_path), TITLE_HARD_MIN_SIZE)
+        font = _title_font(font_path, TITLE_HARD_MIN_SIZE)
         chosen_counts = _greedy_wrap_counts(plain_words, font, max_width)
 
-    # Regroup the *original* (formatted) words using the same counts,
-    # so markdown markers survive into the display lines.
-    lines, idx = [], 0
-    for n in chosen_counts:
-        lines.append(_inline(" ".join(words[idx : idx + n])))
-        idx += n
-
-    return {"size": chosen_size, "lines": lines, "hit_floor": hit_floor}
+    return {"size": chosen_size, "counts": chosen_counts, "hit_floor": hit_floor}
 
 
-def _title_layout(title: str, cfg: dict) -> dict:
-    """Compute the fitted, word-wrapped title lines and vertical
-    centering offset that make the title fill the panel.
-    """
+def _title_layout(title: str, cfg: dict, fmt: Formatter) -> dict:
     p, pad = cfg["panel"], cfg["content_padding"]
     content_w = p["x1"] - p["x0"] - 2 * pad
     content_h = p["y1"] - p["y0"] - 2 * pad
-    font_dir = (Path(cfg["_template_dir"]) / "assets").resolve()
-    font_path = font_dir / cfg["font"]["regular"]
-
-    # Small safety margin: leave a sliver of breathing room rather than
-    # letting glyphs touch the panel edge exactly, and reserve headroom
-    # for synthetic bold (no dedicated bold face is registered).
+    font_path = (Path(cfg["_template_dir"]) / "assets").resolve() / cfg["font"]["regular"]
+    # 4 % breathing room (and synthetic-bold headroom for static fonts)
     layout = _fit_title_layout(title, font_path, content_w * 0.96, content_h * 0.96)
-    total_height = len(layout["lines"]) * layout["size"] * TITLE_LINE_HEIGHT
-    margin_top = max(0, round((content_h - total_height) / 2))
-    layout["margin_top"] = margin_top
+    layout["html"] = _break_lines(fmt(title), layout["counts"])
+    total_height = len(layout["counts"]) * layout["size"] * TITLE_LINE_HEIGHT
+    layout["margin_top"] = max(0, round((content_h - total_height) / 2))
     return layout
 
 
-def build_html(post: Post, template_dir: Path) -> tuple[str, bool]:
+def _snippet(text: str, words: int = 5) -> str:
+    """First few visible words of a paragraph, to identify it by ear."""
+    w = _plain(text).split()
+    return " ".join(w[:words]) + (" …" if len(w) > words else "")
+
+
+def _walk(box):
+    yield box
+    for child in getattr(box, "children", None) or []:
+        yield from _walk(child)
+
+
+def _describe_pages(document, paragraphs: list[dict], tw_prefix: str) -> list[str]:
+    """One plain-language line per slide saying what is on it, including
+    where a paragraph was split across slides. Read from WeasyPrint's
+    finished layout, so it reflects the actual pagination.
+
+    Uses WeasyPrint's page box tree (a semi-internal API); if that ever
+    changes, the overview is simply omitted instead of breaking the render.
+    """
+    try:
+        per_page = []
+        for page in document.pages:
+            items, seen = [], set()
+            for box in _walk(page._page_box):
+                el = getattr(box, "element", None)
+                if el is None:
+                    continue
+                tag = getattr(box, "element_tag", None)
+                if tag == "h1" and "title" not in seen:
+                    items.append(("title", None)); seen.add("title")
+                elif tag == "h2" and "tw" not in seen:
+                    items.append(("tw", el.get("data-tw") or "")); seen.add("tw")
+                elif tag == "p" and el.get("data-para"):
+                    n = int(el.get("data-para"))
+                    if n not in seen:
+                        items.append(("p", n)); seen.add(n)
+            per_page.append(items)
+    except Exception:
+        return []
+
+    first, last = {}, {}
+    for i, items in enumerate(per_page, 1):
+        for kind, n in items:
+            if kind == "p":
+                first.setdefault(n, i)
+                last[n] = i
+
+    lines = []
+    for i, items in enumerate(per_page, 1):
+        parts, trigger = [], False
+        for kind, n in items:
+            if kind == "title":
+                parts.append("Titel")
+            elif kind == "tw":
+                parts.append(f"{tw_prefix}: {n}" if n else tw_prefix)
+            else:
+                info = paragraphs[n - 1]
+                trigger = trigger or info["trigger"]
+                label = f"Absatz {n} („{info['snippet']}“)"
+                if first[n] == last[n]:
+                    parts.append(label)
+                elif i == first[n]:
+                    parts.append(f"{label}: Anfang, geht auf Folie {i + 1} weiter")
+                elif i == last[n]:
+                    parts.append(f"{label}: Ende, Anfang auf Folie {first[n]}")
+                else:
+                    parts.append(f"{label}: Mittelteil")
+        where = " (Trigger-Bereich)" if trigger else ""
+        lines.append(f"Folie {i}{where}: " + ("; ".join(parts) if parts else "leer"))
+    return lines
+
+
+def build_html(post: Post, template_dir: Path, options: RenderOptions) -> tuple[str, dict]:
     cfg = json.loads((template_dir / "template.json").read_text())
     cfg["_template_dir"] = str(template_dir)
     assets = (template_dir / "assets").resolve().as_uri()
     f = cfg["font"]
     p = cfg["panel"]
     pad = cfg["content_padding"]
-    # Content box = panel interior; footer strip lives below the panel.
     margin_top = p["y0"] + pad
     margin_side = p["x0"] + pad
     margin_bottom = PAGE_H - p["y1"] + pad
     footer_h = PAGE_H - p["y1"]
 
-    title_layout = _title_layout(post.title, cfg)
+    fmt = Formatter(cfg.get("highlights", {}))
+    title_layout = _title_layout(post.title, cfg, fmt)
 
-    body_parts = []
-    body_parts.append(
-        f'<h1 style="font-size:{title_layout["size"]}px; '
-        f'margin-top:{title_layout["margin_top"]}px">'
-        + "<br>".join(title_layout["lines"])
+    paragraphs = []  # [{"snippet", "trigger"}], index + 1 == data-para
+
+    def para_html(par: Paragraph, trigger: bool) -> str:
+        paragraphs.append({"snippet": _snippet(par.text), "trigger": trigger})
+        cls = ' class="break"' if par.break_before else ""
+        return f'<p{cls} data-para="{len(paragraphs)}">{fmt(par.text)}</p>'
+
+    body_parts = [
+        f'<h1 style="font-size:{title_layout["size"]}px; margin-top:{title_layout["margin_top"]}px">'
+        + title_layout["html"]
         + "</h1>"
-    )
+    ]
     for sec in post.sections:
         if sec.kind == "trigger":
-            topic = _inline(sec.tw_topic) if sec.tw_topic else ""
+            topic = fmt(sec.tw_topic) if sec.tw_topic else ""
             body_parts.append(
-                f'<h2 class="tw"><span class="tw-label">{html.escape(cfg["trigger_title_prefix"])}</span>'
+                f'<h2 class="tw" data-tw="{html.escape(_plain(sec.tw_topic), quote=True)}"><span class="tw-label">{html.escape(cfg["trigger_title_prefix"])}</span>'
                 + (f"<br>{topic}" if topic else "")
                 + "</h2>"
             )
             body_parts.append('<div class="trigger">')
-            body_parts.extend(f"<p>{_inline(par)}</p>" for par in sec.paragraphs)
-            body_parts.append("</div>")
         else:
             body_parts.append('<div class="normal">')
-            body_parts.extend(f"<p>{_inline(par)}</p>" for par in sec.paragraphs)
-            body_parts.append("</div>")
+        body_parts.extend(para_html(par, sec.kind == "trigger") for par in sec.paragraphs)
+        body_parts.append("</div>")
+
+    hyphens = "auto" if options.hyphenate else "manual"
 
     css = f"""
     @font-face {{
@@ -339,7 +482,6 @@ def build_html(post: Post, template_dir: Path) -> tuple[str, bool]:
       background-size: {PAGE_W}px {PAGE_H}px;
       background-position: -{margin_side}px -{margin_top}px;
     }}
-    html {{ -weasy-hyphens: auto; hyphens: auto; }}
     body {{
       font-family: 'Carousel';
       color: {cfg["colors"]["text"]};
@@ -354,6 +496,7 @@ def build_html(post: Post, template_dir: Path) -> tuple[str, bool]:
       line-height: {TITLE_LINE_HEIGHT};
       font-weight: 700;
       overflow-wrap: break-word;
+      hyphens: manual;
       margin: 0;
     }}
     h2.tw {{
@@ -365,6 +508,7 @@ def build_html(post: Post, template_dir: Path) -> tuple[str, bool]:
       font-size: {round(f["title_size"] * 0.75)}px;
       font-weight: 700;
       overflow-wrap: break-word;
+      hyphens: manual;
     }}
     h2.tw .tw-label {{
       display: block;
@@ -379,7 +523,9 @@ def build_html(post: Post, template_dir: Path) -> tuple[str, bool]:
       margin: 0 0 0.9em 0;
       text-align: left;
       overflow-wrap: break-word;
+      hyphens: {hyphens};
     }}
+    p.break {{ break-before: page; }}
     strong {{ font-weight: 700; }}
     em {{ font-style: italic; }}
     u {{ text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 4px; }}
@@ -388,39 +534,78 @@ def build_html(post: Post, template_dir: Path) -> tuple[str, bool]:
     return (
         f'<!DOCTYPE html><html lang="{cfg["language"]}"><head><meta charset="utf-8">'
         f"<style>{css}</style></head><body>{''.join(body_parts)}</body></html>",
-        title_layout["hit_floor"],
+        {"title_hit_floor": title_layout["hit_floor"],
+         "unknown_colors": sorted(fmt.unknown_colors),
+         "known_colors": sorted(fmt.highlights),
+         "paragraphs": paragraphs},
     )
 
 
-def render(md_text: str, template_dir: Path, out_dir: Path) -> dict:
+def render(
+    md_text: str,
+    template_dir: Path,
+    out_dir: Path,
+    options: Optional[RenderOptions] = None,
+    progress: Optional[ProgressFn] = None,
+) -> dict:
     """Render markdown to PNG slides + alt texts. Returns a result dict."""
+    options = options or RenderOptions()
+
+    def report(label: str, percent: int, detail: str = "") -> None:
+        if progress:
+            progress(label, percent, detail)
+
+    report("Text wird gelesen", 2)
     post = parse_markdown(md_text)
-    doc_html, title_hit_floor = build_html(post, template_dir)
+    doc_html, info = build_html(post, template_dir, options)
+
+    report("Layout wird berechnet", 8)
     out_dir.mkdir(parents=True, exist_ok=True)
+    document = HTML(string=doc_html).render()
+    n_pages = len(document.pages)
+    tw_prefix = json.loads((template_dir / "template.json").read_text())["trigger_title_prefix"]
+    layout = _describe_pages(document, info["paragraphs"], tw_prefix)
     pdf_path = out_dir / "carousel.pdf"
-    HTML(string=doc_html).write_pdf(pdf_path)
+    document.write_pdf(pdf_path)
 
-    # PDF pages -> PNG at exactly 1080x1440
-    subprocess.run(
-        ["pdftoppm", "-png", "-scale-to-x", str(PAGE_W), "-scale-to-y", str(PAGE_H),
-         str(pdf_path), str(out_dir / "folie")],
-        check=True,
-    )
-    slides = sorted(out_dir.glob("folie-*.png"))
+    # Rasterize page by page so progress can be reported per slide.
+    # Zero-padded names keep alphabetical order == slide order (>9 slides).
+    digits = max(2, len(str(n_pages)))
+    slides = []
+    for i in range(1, n_pages + 1):
+        report("Folien werden gezeichnet", 15 + round(70 * (i - 1) / n_pages), f"Folie {i} von {n_pages}")
+        stem = out_dir / f"folie-{i:0{digits}d}"
+        # Rasterize to uncompressed PPM, then encode the PNG with Pillow:
+        # pdftoppm's own PNG writer uses maximum zlib compression, which
+        # takes ~20x longer than the rasterizing itself on photographic
+        # backgrounds (3.6 s vs 0.2 s per slide). Level 3 is lossless too,
+        # just ~5-10 % larger.
+        subprocess.run(
+            ["pdftoppm", "-singlefile", "-f", str(i), "-l", str(i),
+             "-scale-to-x", str(PAGE_W), "-scale-to-y", str(PAGE_H),
+             str(pdf_path), str(stem)],
+            check=True,
+        )
+        ppm = stem.with_name(stem.name + ".ppm")
+        with Image.open(ppm) as im:
+            im.save(stem.with_name(stem.name + ".png"), compress_level=3)
+        ppm.unlink()
+        slides.append(f"{stem.name}.png")
 
-    # Alt texts: extract the text of each PDF page, then strip footer noise
+    report("Alternativtexte werden erstellt", 88)
     cfg = json.loads((template_dir / "template.json").read_text())
     account = cfg["account"]
     alt_texts = []
-    for i in range(1, len(slides) + 1):
+    for i in range(1, n_pages + 1):
         res = subprocess.run(
             ["pdftotext", "-f", str(i), "-l", str(i), str(pdf_path), "-"],
             capture_output=True, text=True, check=True,
         )
+        # Re-join words split by hyphenation (U+2010 or '-' at line end)
         txt = res.stdout.replace("\u2010\n", "").replace("-\n", "")
         txt = " ".join(txt.split())
         txt = txt.replace(account, "").strip()
-        txt = re.sub(rf"\s{i}$", "", txt).strip()
+        txt = re.sub(rf"\s{i}$", "", txt).strip()  # trailing page number
         alt_texts.append(txt)
 
     (out_dir / "alt-texte.txt").write_text(
@@ -430,21 +615,28 @@ def render(md_text: str, template_dir: Path, out_dir: Path) -> dict:
     pdf_path.unlink()
 
     warnings = []
-    if len(slides) > MAX_SLIDES:
+    if n_pages > MAX_SLIDES:
         warnings.append(
-            f"Achtung: {len(slides)} Folien erzeugt – Instagram erlaubt maximal "
-            f"{MAX_SLIDES} pro Karussell. Bitte Text kürzen oder aufteilen."
+            f"{n_pages} Folien erzeugt – Instagram erlaubt maximal {MAX_SLIDES} pro Beitrag. "
+            f"Die Folien {MAX_SLIDES + 1} bis {n_pages} sind unten markiert. "
+            f"Bitte Text kürzen oder auf zwei Beiträge aufteilen."
         )
-    if title_hit_floor:
+    if info["title_hit_floor"]:
         warnings.append(
-            "Achtung: Der Titel ist so lang, dass er auch bei kleinstmöglicher "
-            "Schriftgröße nicht vollständig ins Panel passt und leicht übersteht. "
-            "Bitte Titel kürzen."
+            "Der Titel ist so lang, dass er auch bei kleinstmöglicher Schriftgröße "
+            "nicht vollständig ins Panel passt und leicht übersteht. Bitte Titel kürzen."
         )
-    warning = "\n".join(warnings) if warnings else None
+    if info["unknown_colors"]:
+        known = ", ".join(info["known_colors"]) or "keine"
+        warnings.append(
+            "Unbekannte Farbe(n): " + ", ".join(info["unknown_colors"])
+            + f". Diese Stellen sind ohne Farbe gedruckt. Verfügbar in dieser Vorlage: {known}."
+        )
     return {
-        "title": post.title,
-        "slides": [s.name for s in slides],
+        "title": _plain(post.title),
+        "slides": slides,
         "alt_texts": alt_texts,
-        "warning": warning,
+        "warnings": warnings,
+        "limit": MAX_SLIDES,
+        "layout": layout,
     }

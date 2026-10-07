@@ -21,5 +21,9 @@ EXPOSE 5000
 HEALTHCHECK --interval=60s --timeout=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"
 
+# gthread: an idle or slow connection (browser preconnect, status polling,
+# many slide images at once) blocks only one thread, not a whole worker.
+# Rendering itself runs in separate job processes, not in the web workers.
 CMD ["gunicorn", "--chdir", "app", "--bind", "0.0.0.0:5000", \
-     "--workers", "2", "--timeout", "120", "app:app"]
+     "--workers", "2", "--worker-class", "gthread", "--threads", "4", \
+     "--timeout", "120", "app:app"]
